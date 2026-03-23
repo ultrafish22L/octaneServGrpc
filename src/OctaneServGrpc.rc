@@ -1,0 +1,39 @@
+// Microsoft Visual C++ generated resource script.
+// Adapted from octaneservermodule/src/appserver_octane/OctaneServer.rc
+
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+#ifndef APSTUDIO_INVOKED
+#include "targetver.h"
+#endif
+#define APSTUDIO_HIDDEN_SYMBOLS
+#include "windows.h"
+#undef APSTUDIO_HIDDEN_SYMBOLS
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// Icon
+IDI_ICON1               ICON                    "..\\assets\\install.ico"
+
+/////////////////////////////////////////////////////////////////////////////
+// Dialog
+IDD_ABOUTBOX DIALOGEX 0, 0, 200, 70
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About OctaneServGrpc"
+FONT 8, "MS Shell Dlg", 0, 0, 0x1
+BEGIN
+    ICON            128,IDC_STATIC,14,14,21,20
+    LTEXT           "OctaneServGrpc v1.0",IDC_STATIC,42,14,150,8,SS_NOPREFIX
+    LTEXT           "Serves Octane SDK as gRPC",IDC_STATIC,42,26,150,8
+    LTEXT           "Copyright (C) 2026 OTOY",IDC_STATIC,42,38,150,8
+    DEFPUSHBUTTON   "OK",IDOK,143,49,50,14,WS_GROUP
+END
+
+/////////////////////////////////////////////////////////////////////////////
+// String Table
+STRINGTABLE
+BEGIN
+    IDS_APP_TITLE           "OctaneServGrpc"
+    IDC_OCTANESERVGRPC        "OCTANESERVGRPC"
+END
