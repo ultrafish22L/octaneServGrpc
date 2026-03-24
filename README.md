@@ -6,7 +6,7 @@ C++ gRPC server embedding Octane Render SDK 2026.2. No separate octane.exe — t
 - 96 Octane proto services on port 51022
 - octaneWebR + MCP connect with zero changes
 
-See [QUICKSTART.md](QUICKSTART.md) to build and run. See [ARCHITECTURE.md](ARCHITECTURE.md) for design. See [REFERENCE.md](REFERENCE.md) for service mapping.
+See [QUICKSTART.md](QUICKSTART.md) to build and run. See [docs/](docs/) for architecture, reference, troubleshooting, and design docs.
 
 ## Status
 

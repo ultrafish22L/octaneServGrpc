@@ -7,7 +7,7 @@ cd build && cmake .. -G "Visual Studio 17 2022"   # first time ~4 min (downloads
 cmake --build . --config Release --target octaneServGrpc
 ```
 
-Requires: VS 2022, CMake 3.16+, Octane SDK at `../OctaneRenderSDK_Studio+_2026_2_win/`. See [BUILD.md](BUILD.md) for details.
+Requires: VS 2022, CMake 3.16+, Octane SDK at `../OctaneRenderSDK_Studio+_2026_2_win/`. See [docs/BUILD.md](docs/BUILD.md) for details.
 
 ## §2 Run
 
@@ -28,4 +28,4 @@ Log: `build/Release/log_serv.log`
 5. Viewport: verify render images stream to preview
 6. Full test: glass metal DRESS — see `octaneWebR/docs/mcp/TEST_PLAN.md`
 
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for issues.
+See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for issues.

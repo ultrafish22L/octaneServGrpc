@@ -18,10 +18,10 @@
 ## Reference
 
 - Build/run/test: [QUICKSTART.md](QUICKSTART.md)
-- Build details: [BUILD.md](BUILD.md)
-- System design: [ARCHITECTURE.md](ARCHITECTURE.md)
-- Service mapping: [REFERENCE.md](REFERENCE.md)
-- Debug issues: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- Build details: [docs/BUILD.md](docs/BUILD.md)
+- System design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Service mapping: [docs/REFERENCE.md](docs/REFERENCE.md)
+- Debug issues: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - Hardening plan: [docs/PLAN.md](docs/PLAN.md)
 - Native MCP design: [docs/UNIFY.md](docs/UNIFY.md)
 
