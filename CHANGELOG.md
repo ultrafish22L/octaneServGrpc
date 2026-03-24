@@ -43,3 +43,30 @@
 - MCP `load_project` loads teapot.orbx successfully (18ms on server side)
 - Scene tree traversal works (getOwnedItems → size → get)
 - Zero bridge-side errors on scene load
+
+**Known Limitations (v1.0.0):**
+- Render image streaming not functional (StreamCallbackService is a stub — SDK callbacks not wired). Use `save_render` via MCP instead.
+- No exception handling on RPC methods (crash-prone). See PLAN.md §1A for GRPC_SAFE macro hardening.
+- Handle staling not validated (SDK can delete items, leaving stale pointers in registry).
+
+---
+
+## v1.1.0 — 2026-03-24
+
+### Added — Full Scene Building via MCP
+
+- `ApiNodeService` — create, connectToIx, connectTo1, disconnectPin, pinCount, pinInfo, getPinValue, setPinValue, destroy
+- `ApiItemService` — getValueByAttrID, setValueByAttrID, hasAttr, getConnectedNode, setPinCount, getByAttrID, setByAttrID
+- `ApiRenderEngineService` — saveImage1 (render to file), getStatistics, isCompiling, isRunning, getFrameId, saveRenderPasses
+- `StreamCallbackServiceImpl` — callbackChannel wired with render image + statistics streaming (buffer copy path)
+
+### Changed
+
+- `HandleRegistry` — auto-registers pin children on create/connect for MCP scene cache compatibility
+
+### Verified
+
+- Full glass metal DRESS test passed — 3 spheres (gold metallic, glass specular, red matte) + floor on golden hour daylight
+- Tested against octaneWebR MCP (78 tools) and preview viewport
+- Scene building end-to-end: create_node → set_attribute → connect_nodes → start_render → save_render
+- Alpha 5 compat layer tested and passing (see `octaneWebR/docs/mcp/ALPHA5_COMPAT.md`)

@@ -1,6 +1,6 @@
 # octaneServGrpc — Hardening & Architecture Overhaul
 
-## Context
+## §1 Context
 
 Deep code review of octaneServGrpc revealed fundamental issues that would make the server crash-prone under real-world use. The server must be **bulletproof** — it wraps a GPU render engine that's expensive to restart, so any crash means lost render state, lost time. The current code has zero exception handling, an unnecessary caching layer, and the callback system (the lifeblood of the viewport) is a stub.
 
@@ -12,7 +12,7 @@ Goals:
 
 ---
 
-## Part 1: Hardening (NEVER CRASH)
+## §2 Hardening
 
 ### 1A. Global exception boundary around every RPC
 
@@ -121,7 +121,7 @@ Apply to every service method that takes an ObjectRef. The `isGraph`/`isNode` re
 
 ---
 
-## Part 2: Simplify State — Lean Cache
+## §3 Simplify State
 
 ### 2A. Keep HandleRegistry but make it lean and validated
 
@@ -159,7 +159,7 @@ Apply to every service method that takes an ObjectRef. The `isGraph`/`isNode` re
 
 ---
 
-## Part 3: Callbacks — The Heart of the System
+## §4 Callbacks
 
 ### 3A. Wire StreamCallbackService to SDK callbacks
 
@@ -266,7 +266,7 @@ The `callback.proto` defines `ChangeManagerObserver` with `ChangeEvent` (ITEM_AD
 
 ---
 
-## Part 4: Complete the API Surface
+## §5 API Surface
 
 ### 4A. ApiNodeService — Scene Building
 
@@ -294,7 +294,7 @@ All methods must: validate inputs, catch SDK exceptions, return proper gRPC erro
 
 ---
 
-## Part 5: Brainstorm — What Makes This Shine
+## §6 Future Ideas
 
 ### 5A. Health & Diagnostics Endpoint
 - New gRPC service or extend ApiInfo: `getServerHealth()` → returns SDK ready, GPU count, memory, active streams, uptime, queue depth
@@ -347,7 +347,7 @@ All methods must: validate inputs, catch SDK exceptions, return proper gRPC erro
 
 ---
 
-## Implementation Order
+## §7 Implementation Order
 
 | Phase | What | Priority |
 |-------|------|----------|
@@ -381,7 +381,7 @@ All methods must: validate inputs, catch SDK exceptions, return proper gRPC erro
 
 1. **Build**: `cmake --build . --config Release` — must compile clean
 2. **Smoke test**: Start server, connect octaneWebR, verify version handshake
-3. **Load project**: Load teapot.orbx, verify scene tree traversal works with validated lookups
+3. **Load project**: Load ORBX/teapot.orbx, verify scene tree traversal works with validated lookups
 4. **Callback test**: Verify render image frames arrive in octaneWebR viewport
 5. **Crash test**: Send invalid handles (0, MAX_UINT64, random), empty strings, out-of-range enums — server must return errors, never crash
 6. **Multi-client**: Connect octaneWebR + MCP simultaneously, verify both get callbacks

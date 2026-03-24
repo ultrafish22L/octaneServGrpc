@@ -42,3 +42,6 @@
 
 build/
 proto/
+temp/
+*.log
+CMakeUserPresets.json

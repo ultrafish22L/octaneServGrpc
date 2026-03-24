@@ -154,6 +154,7 @@ static Octane::ApiProjectManager::Observer sProjectObserver;
 static bool sCallbacksRegistered = false;
 
 static void onNewImageCB(const Octane::ApiArray<Octane::ApiRenderImage>&, void*) {
+    ServerLog::instance().req("SDK", "onNewImage", "subs=" + std::to_string(CallbackDispatcher::Instance().SubscriberCount()));
     CallbackDispatcher::Instance().Broadcast({CallbackEventType::NewImage, 0});
 }
 

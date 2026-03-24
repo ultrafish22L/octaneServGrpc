@@ -3,7 +3,7 @@
 ## Build Issues
 
 ### "Octane SDK not found"
-The SDK path is relative: `${CMAKE_CURRENT_SOURCE_DIR}/../OctaneRenderSDK_Studio+_2026_2_win`. Ensure the SDK is at `C:\otoyla\GRPC\dev\OctaneRenderSDK_Studio+_2026_2_win\`. Or override:
+The SDK path is relative: `${CMAKE_CURRENT_SOURCE_DIR}/../OctaneRenderSDK_Studio+_2026_2_win`. Ensure the SDK is in the sibling directory `OctaneRenderSDK_Studio+_2026_2_win/`. Or override:
 ```bash
 cmake .. -DOCTANE_SDK_DIR="C:/path/to/sdk"
 ```
@@ -57,7 +57,7 @@ Expected in Phase 1 — `StreamCallbackService.callbackChannel()` is a stub. SDK
 Check `log_serv.log` for `ApiItemArrayService.size` errors. If "Array not found", the handle registry isn't finding the `ApiItemArray` returned by `getOwnedItems`. This was fixed by using synthetic array handles (0x8000...) separate from item handles.
 
 ### MCP `load_project` reports 120s timeout
-The MCP client has a 120s timeout. The actual load is fast (check `log_serv.log` — usually <100ms for teapot.orbx). The timeout happens because the MCP client waits for a callback confirmation that never arrives (callback streaming not wired yet).
+The MCP client has a 120s timeout. The actual load is fast (check `log_serv.log` — usually <100ms for ORBX/teapot.orbx). The timeout happens because the MCP client waits for a callback confirmation that never arrives (callback streaming not wired yet).
 
 ## Debugging
 

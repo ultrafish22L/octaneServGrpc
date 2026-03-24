@@ -1,5 +1,7 @@
 # Improvements & Backlog
 
+> **Note:** For detailed hardening plans and architecture, see **PLAN.md** (GRPC_SAFE macro, callback wiring, handle validation) and **UNIFY.md** (native MCP server design). This file is a quick-reference backlog.
+
 ## Phase 2 — Core Functionality (Next)
 
 ### P0: Render Streaming
@@ -74,7 +76,7 @@
 - [ ] Multiple simultaneous clients (verify thread safety)
 - [ ] Scene state mirroring (bridge maintains its own scene graph for queries)
 - [ ] Batch RPC support (multiple operations in one call)
-- [ ] gRPC reflection service (for grpcurl / debugging)
+- [ ] gRPC reflection service — enable `grpc::reflection::InitProtoReflectionServerBuilderPlugin()` so clients can discover the full API at runtime (grpcurl, Postman, any gRPC client). No separate docs needed — the protos ARE the docs.
 - [ ] TLS support (secure connections)
 - [ ] Authentication (API keys for client access)
 - [ ] Alias layer for gRPC: maps Octane C++ SDK style method/field names to Octane Lua API style names — both work. Enables clients to call using either convention.

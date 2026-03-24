@@ -2,7 +2,7 @@
 
 > **Goal**: octaneServGrpc serves MCP directly over stdio so Claude can register it as a standalone MCP server — no Node.js, no octaneWebR dependency. The tray app becomes a self-contained AI-controllable render engine.
 >
-> **Non-goal**: Replace octaneWebR's MCP. It keeps its own server (82 tools incl. SEGA, art direction, vision). Since it just calls gRPC, this change has no bearing on it.
+> **Non-goal**: Replace octaneWebR's MCP. It keeps its own server (78 tools incl. SEGA, art direction, vision). Since it just calls gRPC, this change has no bearing on it.
 
 ---
 
@@ -11,7 +11,7 @@
 ### Current State
 
 ```
-Claude ──stdio──▶ octaneWebR MCP (Node.js, 82 tools)
+Claude ──stdio──▶ octaneWebR MCP (Node.js, 78 tools)
                         │
                         │ gRPC (TCP :51022)
                         ▼
@@ -302,7 +302,7 @@ The `octane-api-cache.json` from octaneWebR can be copied into octaneServGrpc's 
 {
   "mcpServers": {
     "octane": {
-      "command": "C:/otoyla/dev/octaneServGrpc/build/Release/octaneServGrpc.exe",
+      "command": "build/Release/octaneServGrpc.exe",
       "args": ["--mcp"],
       "env": {
         "SERV_LOG_LEVEL": "info"
@@ -318,7 +318,7 @@ The `octane-api-cache.json` from octaneWebR can be copied into octaneServGrpc's 
 {
   "mcpServers": {
     "octane-render": {
-      "command": "C:/otoyla/dev/octaneServGrpc/build/Release/octaneServGrpc.exe",
+      "command": "build/Release/octaneServGrpc.exe",
       "args": ["--mcp"]
     }
   }

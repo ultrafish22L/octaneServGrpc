@@ -4,13 +4,13 @@
 
 - **Visual Studio 2022** (Professional or Community) with C++ desktop workload
 - **CMake 3.16+** (3.29 tested)
-- **Octane Render SDK 2026.2** at `C:\otoyla\GRPC\dev\OctaneRenderSDK_Studio+_2026_2_win\`
+- **Octane Render SDK 2026.2** in sibling directory `OctaneRenderSDK_Studio+_2026_2_win/`
 - **Internet** (first configure downloads gRPC ~200MB)
 
 ## First Build
 
 ```bash
-cd C:\otoyla\GRPC\dev\octaneServGrpc
+cd octaneServGrpc
 mkdir build
 cd build
 cmake .. -G "Visual Studio 17 2022"        # ~4 min (downloads gRPC)

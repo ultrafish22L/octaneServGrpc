@@ -37,11 +37,23 @@
 #include "apinodesystem_3.grpc.pb.h"
 #include "apinodesystem_6.grpc.pb.h"
 #include "apinodesystem_7.grpc.pb.h"
+#include "apinodepininfohelper.grpc.pb.h"
 
 namespace OctaneServ {
 
 // Shared handle registry — all services access the same instance
 static HandleRegistry* sHandleRegistry = nullptr;
+
+// Pin info handles: encode node uniqueId + pin index into a single uint64.
+// High 48 bits = node handle, low 16 bits = pin index. No cache needed —
+// decode at lookup time, get pin info from live SDK node.
+static uint64_t encodePinInfoHandle(uint64_t nodeHandle, uint32_t pinIndex) {
+    return (nodeHandle << 16) | (pinIndex & 0xFFFF);
+}
+static void decodePinInfoHandle(uint64_t handle, uint64_t& nodeHandle, uint32_t& pinIndex) {
+    nodeHandle = handle >> 16;
+    pinIndex = static_cast<uint32_t>(handle & 0xFFFF);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Hardening infrastructure
@@ -182,6 +194,20 @@ static Octane::ApiItemArray* requireArray(uint64_t handle, const char* svc,
         return nullptr;
     }
     return arr;
+}
+
+// Walk a node's pin children recursively and register all of them.
+// Prevents "handle not found" errors when the client calls attrInfo
+// on auto-created pin children without first calling connectedNodeIx.
+static void registerPinChildrenRecursive(Octane::ApiNode* node, int depth = 0) {
+    if (!node || depth > 10) return; // guard against infinite recursion
+    for (uint32_t i = 0; i < node->pinCount(); ++i) {
+        Octane::ApiNode* child = node->connectedNodeIx(i, false);
+        if (child) {
+            sHandleRegistry->Register(child);
+            registerPinChildrenRecursive(child, depth + 1);
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -706,6 +732,67 @@ public:
     }
 
     // ── Enabled AOVs ──────────────────────────────────────────────────
+    // ── Grab Render Result (pixel data for viewport) ────────────────
+    grpc::Status grabRenderResult(grpc::ServerContext*, const octaneapi::ApiRenderEngine::grabRenderResultRequest*,
+        octaneapi::ApiRenderEngine::grabRenderResultResponse* response) override {
+        GRPC_SAFE_BEGIN(SVC)
+            Octane::ApiArray<Octane::ApiRenderImage> renderImages;
+            bool result = Octane::ApiRenderEngine::grabRenderResult(renderImages);
+            response->set_result(result);
+
+            if (result && renderImages.mSize > 0) {
+                auto* arr = response->mutable_renderimages();
+                for (size_t i = 0; i < renderImages.mSize; ++i) {
+                    const Octane::ApiRenderImage& img = renderImages.mData[i];
+                    auto* protoImg = arr->add_data();
+
+                    protoImg->set_type(static_cast<octaneapi::ImageType>(img.mType));
+                    protoImg->set_colorspace(static_cast<octaneapi::NamedColorSpace>(img.mColorSpace));
+                    protoImg->set_islinear(img.mIsLinear);
+                    auto* sz = protoImg->mutable_size();
+                    sz->set_x(img.mSize.x);
+                    sz->set_y(img.mSize.y);
+                    protoImg->set_pitch(img.mPitch);
+                    protoImg->set_renderpassid(static_cast<octaneapi::RenderPassId>(img.mRenderPassId));
+                    protoImg->set_tonemappedsamplesperpixel(img.mTonemappedSamplesPerPixel);
+                    protoImg->set_calculatedsamplesperpixel(img.mCalculatedSamplesPerPixel);
+                    protoImg->set_regionsamplesperpixel(img.mRegionSamplesPerPixel);
+                    protoImg->set_maxsamplesperpixel(img.mMaxSamplesPerPixel);
+
+                    // Pack pixel buffer
+                    if (img.mBuffer && img.mSize.x > 0 && img.mSize.y > 0) {
+                        // Calculate buffer size based on image type
+                        size_t bytesPerPixel = 4; // default RGBA8
+                        switch (img.mType) {
+                            case Octane::IMAGE_TYPE_LDR_RGBA: bytesPerPixel = 4; break;
+                            case Octane::IMAGE_TYPE_HDR_RGBA: bytesPerPixel = 16; break; // 4 floats
+                            default: bytesPerPixel = 4; break;
+                        }
+                        size_t bufSize = static_cast<size_t>(img.mPitch) * img.mSize.y * bytesPerPixel;
+                        auto* buf = protoImg->mutable_buffer();
+                        buf->set_data(img.mBuffer, bufSize);
+                        buf->set_size(static_cast<uint32_t>(bufSize));
+                    }
+                }
+            }
+
+            // Release so the engine can reuse the buffer
+            if (result) {
+                Octane::ApiRenderEngine::releaseRenderResult();
+            }
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
+
+    // ── Release Render Result ─────────────────────────────────────────
+    grpc::Status releaseRenderResult(grpc::ServerContext*, const octaneapi::ApiRenderEngine::releaseRenderResultRequest*,
+        google::protobuf::Empty*) override {
+        GRPC_SAFE_BEGIN(SVC)
+            Octane::ApiRenderEngine::releaseRenderResult();
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
+
     grpc::Status getEnabledAovs(grpc::ServerContext*, const octaneapi::ApiRenderEngine::getEnabledAovsRequest* request,
         octaneapi::ApiRenderEngine::getEnabledAovsResponse* response) override {
         GRPC_SAFE_BEGIN(SVC)
@@ -1082,14 +1169,13 @@ public:
         octaneapi::ApiItem::getValueResponse* response) override {
         GRPC_SAFE_BEGIN(SVC)
             grpc::Status status;
-            auto* item = requireItem(request->item_ref().handle(), SVC, __func__, status);
+            auto* item = requireItem(request->objectptr().handle(), SVC, __func__, status);
             if (!item) return status;
 
             Octane::AttributeId attrId = static_cast<Octane::AttributeId>(request->attribute_id());
             if (!item->hasAttr(attrId)) {
-                std::ostringstream oss;
-                oss << "attribute " << static_cast<int>(attrId) << " not found on item " << request->item_ref().handle();
-                return failNotFound(SVC, __func__, request->item_ref().handle(), "attribute");
+                // Return empty response — client probes attributes on nodes that may not have them
+                return grpc::Status::OK;
             }
 
             // Get attribute type to dispatch correctly
@@ -1191,7 +1277,7 @@ public:
         octaneapi::ApiItem::setValueResponse* response) override {
         GRPC_SAFE_BEGIN(SVC)
             grpc::Status status;
-            auto* item = requireItem(request->item_ref().handle(), SVC, __func__, status);
+            auto* item = requireItem(request->objectptr().handle(), SVC, __func__, status);
             if (!item) return status;
 
             Octane::AttributeId attrId = static_cast<Octane::AttributeId>(request->attribute_id());
@@ -1268,19 +1354,15 @@ public:
                     response->set_error_message("no value provided in setValueByAttrID request");
                     return grpc::Status::OK;
             }
-            // Workaround: force evaluate after setting attributes that change node structure.
-            // - A_FILENAME/A_RELOAD: mesh needs evaluate to load OBJ and populate material pin
-            // - A_PIN_COUNT: group/node needs evaluate to materialize dynamic pins
-            // ChangeManager::update() alone is not sufficient.
-            if (attrId == Octane::A_FILENAME || attrId == Octane::A_RELOAD || attrId == Octane::A_PIN_COUNT) {
-                auto* node = item->toNode();
-                if (node) {
-                    Octane::ApiChangeManager::update();
-                    node->evaluate();
-                }
-            }
-            if (evaluate) {
+            // Always force evaluate after any attribute set.
+            // The SDK's set() with evaluate=false defers changes. Many attributes
+            // need an explicit node->evaluate() to take effect (A_FILENAME loads OBJ,
+            // A_PIN_COUNT materializes pins, A_TRANSLATION recalculates transform matrix).
+            // Rather than maintaining a list of special attributes, just always evaluate.
+            {
                 Octane::ApiChangeManager::update();
+                auto* node = item->toNode();
+                if (node) node->evaluate();
             }
 
             response->set_success(true);
@@ -1353,8 +1435,9 @@ public:
             auto* item = requireItem(request->objectptr().handle(), SVC, __func__, status);
             if (!item) return status;
             Octane::AttributeId attrId = static_cast<Octane::AttributeId>(request->id());
+            // Return empty response if attribute doesn't exist — client probes attributes
             if (!item->hasAttr(attrId)) {
-                return failNotFound(SVC, __func__, request->objectptr().handle(), "attribute");
+                return grpc::Status::OK;
             }
             const Octane::ApiAttributeInfo& info = item->attrInfo(attrId);
             packAttrInfo(info, response->mutable_result());
@@ -1370,6 +1453,20 @@ public:
             auto* item = requireItem(request->objectptr().handle(), SVC, __func__, status);
             if (!item) return status;
             response->set_result(item->isAnimated(static_cast<Octane::AttributeId>(request->id())));
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
+
+    // ── Position (item's position in its owner graph) ───────────────
+    grpc::Status position(grpc::ServerContext*, const octaneapi::ApiItem::positionRequest* request,
+        octaneapi::ApiItem::positionResponse* response) override {
+        GRPC_SAFE_BEGIN(SVC)
+            grpc::Status status;
+            auto* item = requireItem(request->objectptr().handle(), SVC, __func__, status);
+            if (!item) return status;
+            Octane::float_2 pos = item->position();
+            auto* r = response->mutable_result();
+            r->set_x(pos.x); r->set_y(pos.y);
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -1463,6 +1560,13 @@ public:
             }
             uint64_t handle = sHandleRegistry->Register(node);
             response->mutable_result()->set_handle(handle);
+
+            // Register all pin children recursively so the client can call
+            // attrInfo/etc on them without first calling connectedNodeIx.
+            // Pin children can have their own pin children (RT→camera→aperture→Float).
+            if (configurePins) {
+                registerPinChildrenRecursive(node);
+            }
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -1620,6 +1724,97 @@ public:
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
+
+    // ── Node info (instance-level, returns ApiNodeInfo for this node's type) ──
+    grpc::Status info(grpc::ServerContext*, const octaneapi::ApiNode::infoRequest* request,
+        octaneapi::ApiNode::infoResponse* response) override {
+        GRPC_SAFE_BEGIN(SVC)
+            grpc::Status status;
+            auto* node = requireNode(request->objectptr().handle(), SVC, __func__, status);
+            if (!node) return status;
+            const Octane::ApiNodeInfo& ni = node->info();
+            auto* r = response->mutable_result();
+            r->set_type(static_cast<octaneapi::NodeType>(ni.mType));
+            r->set_description(ni.mDescription ? ni.mDescription : "");
+            r->set_outtype(static_cast<octaneapi::NodePinType>(ni.mOutType));
+            r->set_nodecolor(ni.mNodeColor);
+            r->set_islinker(ni.mIsLinker);
+            r->set_isoutputlinker(ni.mIsOutputLinker);
+            r->set_takespindefaultvalue(ni.mTakesPinDefaultValue);
+            r->set_ishidden(ni.mIsHidden);
+            r->set_iscreatablebyapi(ni.mIsCreatableByApi);
+            r->set_isscriptgraphwrapper(ni.mIsScriptGraphWrapper);
+            r->set_istypedtexturenode(ni.mIsTypedTextureNode);
+            r->set_category(ni.mCategory ? ni.mCategory : "");
+            r->set_defaultname(ni.mDefaultName ? ni.mDefaultName : "");
+            r->set_attributeinfocount(ni.mAttributeInfoCount);
+            r->set_pininfocount(ni.mPinInfoCount);
+            r->set_movableinputcountattribute(static_cast<octaneapi::AttributeId>(ni.mMovableInputCountAttribute));
+            r->set_movableinputpincount(ni.mMovableInputPinCount);
+            r->set_movableinputformat(static_cast<octaneapi::MovableInputFormat>(ni.mMovableInputFormat));
+            r->set_movableinputname(ni.mMovableInputName ? ni.mMovableInputName : "");
+            r->set_minversion(ni.mMinVersion);
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
+
+    // ── Pin info by index (returns encoded node+pin handle, no cache) ──
+    grpc::Status pinInfoIx(grpc::ServerContext*, const octaneapi::ApiNode::pinInfoIxRequest* request,
+        octaneapi::ApiNode::pinInfoIxResponse* response) override {
+        GRPC_SAFE_BEGIN(SVC)
+            grpc::Status status;
+            auto* node = requireNode(request->objectptr().handle(), SVC, __func__, status);
+            if (!node) return status;
+            uint32_t index = request->index();
+            if (index >= node->pinCount()) {
+                return grpc::Status::OK; // out of range = null handle
+            }
+            uint64_t handle = encodePinInfoHandle(request->objectptr().handle(), index);
+            response->mutable_result()->set_handle(handle);
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
+
+    // ── Get pin value by PinId ────────────────────────────────────────
+    grpc::Status getPinValueByPinID(grpc::ServerContext*, const octaneapi::ApiNode::getPinValueByIDRequest* request,
+        octaneapi::ApiNode::getPinValueByXResponse* response) override {
+        GRPC_SAFE_BEGIN(SVC)
+            grpc::Status status;
+            auto* node = requireNode(request->objectptr().handle(), SVC, __func__, status);
+            if (!node) return status;
+
+            Octane::PinId pinId = static_cast<Octane::PinId>(request->pin_id());
+            // Determine pin type to dispatch correctly
+            Octane::NodePinType pinType = node->pinType(pinId);
+
+            switch (pinType) {
+                case Octane::PT_BOOL: {
+                    bool v = false; node->getPinValue(pinId, v);
+                    response->set_bool_value(v);
+                    break;
+                }
+                case Octane::PT_INT: {
+                    int32_t v = 0; node->getPinValue(pinId, v);
+                    response->set_int_value(v);
+                    break;
+                }
+                case Octane::PT_FLOAT: {
+                    float v = 0; node->getPinValue(pinId, v);
+                    response->set_float_value(v);
+                    break;
+                }
+                default: {
+                    // For texture/geometry/material pins, try float3 (common for color pins)
+                    Octane::float_3 v; v.x = 0; v.y = 0; v.z = 0;
+                    node->getPinValue(pinId, v);
+                    auto* r = response->mutable_float3_value();
+                    r->set_x(v.x); r->set_y(v.y); r->set_z(v.z);
+                    break;
+                }
+            }
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1714,6 +1909,101 @@ public:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ApiNodePinInfoExService — detailed pin info lookup
+// ═══════════════════════════════════════════════════════════════════════════
+class NodePinInfoExServiceImpl final : public octaneapi::ApiNodePinInfoExService::Service {
+    static constexpr const char* SVC = "ApiNodePinInfoExService";
+
+    // Helper to pack SDK ApiNodePinInfo into proto message.
+    // Packs core fields; sub-info (float ranges, enum values) filled where available.
+    static void packPinInfo(const Octane::ApiNodePinInfo& pi, octaneapi::ApiNodePinInfo* out) {
+        out->set_id(static_cast<octaneapi::PinId>(pi.mId));
+        out->set_type(static_cast<octaneapi::NodePinType>(pi.mType));
+        out->set_istypedtexturepin(pi.mIsTypedTexturePin);
+        out->set_staticname(pi.mStaticName ? pi.mStaticName : "");
+        out->set_staticlabel(pi.mStaticLabel ? pi.mStaticLabel : "");
+        out->set_description(pi.mDescription ? pi.mDescription : "");
+        out->set_groupname(pi.mGroupName ? pi.mGroupName : "");
+        out->set_pincolor(pi.mPinColor);
+        out->set_defaultnodetype(static_cast<octaneapi::NodeType>(pi.mDefaultNodeType));
+        out->set_minversion(pi.mMinVersion);
+        out->set_endversion(pi.mEndVersion);
+        // Float pin info — dimension-based ranges
+        if (pi.mFloatInfo) {
+            auto* fi = out->mutable_floatinfo();
+            fi->set_isvalid(true);
+            fi->set_dimcount(pi.mFloatInfo->mDimCount);
+            fi->set_usesliders(pi.mFloatInfo->mUseSliders);
+            fi->set_allowlog(pi.mFloatInfo->mAllowLog);
+            fi->set_defaultislog(pi.mFloatInfo->mDefaultIsLog);
+            for (uint32_t d = 0; d < pi.mFloatInfo->mDimCount && d < 4; ++d) {
+                auto* di = fi->add_diminfos();
+                di->set_name(pi.mFloatInfo->mDimInfos[d].mName ? pi.mFloatInfo->mDimInfos[d].mName : "");
+                di->set_minvalue(pi.mFloatInfo->mDimInfos[d].mMinValue);
+                di->set_maxvalue(pi.mFloatInfo->mDimInfos[d].mMaxValue);
+                di->set_sliderminvalue(pi.mFloatInfo->mDimInfos[d].mSliderMinValue);
+                di->set_slidermaxvalue(pi.mFloatInfo->mDimInfos[d].mSliderMaxValue);
+                di->set_sliderstep(pi.mFloatInfo->mDimInfos[d].mSliderStep);
+            }
+        }
+        // Int pin info — dimension-based ranges
+        if (pi.mIntInfo) {
+            auto* ii = out->mutable_intinfo();
+            ii->set_isvalid(true);
+            ii->set_dimcount(pi.mIntInfo->mDimCount);
+            for (uint32_t d = 0; d < pi.mIntInfo->mDimCount && d < 4; ++d) {
+                auto* di = ii->add_diminfos();
+                di->set_name(pi.mIntInfo->mDimInfos[d].mName ? pi.mIntInfo->mDimInfos[d].mName : "");
+                di->set_minvalue(pi.mIntInfo->mDimInfos[d].mMinValue);
+                di->set_maxvalue(pi.mIntInfo->mDimInfos[d].mMaxValue);
+                di->set_sliderminvalue(pi.mIntInfo->mDimInfos[d].mSliderMinValue);
+                di->set_slidermaxvalue(pi.mIntInfo->mDimInfos[d].mSliderMaxValue);
+                di->set_sliderstep(pi.mIntInfo->mDimInfos[d].mSliderStep);
+            }
+        }
+        // Enum pin info — value/label pairs
+        if (pi.mEnumInfo) {
+            auto* ei = out->mutable_enuminfo();
+            ei->set_isvalid(true);
+            ei->set_valuecount(pi.mEnumInfo->mValueCount);
+            ei->set_defaultvalue(pi.mEnumInfo->mDefaultValue);
+            for (uint32_t i = 0; i < pi.mEnumInfo->mValueCount; ++i) {
+                auto* v = ei->add_values();
+                v->set_value(pi.mEnumInfo->mValues[i].mValue);
+                v->set_label(pi.mEnumInfo->mValues[i].mLabel ? pi.mEnumInfo->mValues[i].mLabel : "");
+            }
+        }
+    }
+
+public:
+    grpc::Status getApiNodePinInfo(grpc::ServerContext*,
+        const octaneapi::ApiNodePinInfoEx::GetNodePinInfoRequest* request,
+        octaneapi::ApiNodePinInfoEx::GetNodePinInfoResponse* response) override {
+        GRPC_SAFE_BEGIN(SVC)
+            uint64_t encodedHandle = request->objectptr().handle();
+            uint64_t nodeHandle = 0;
+            uint32_t pinIndex = 0;
+            decodePinInfoHandle(encodedHandle, nodeHandle, pinIndex);
+
+            grpc::Status status;
+            auto* node = requireNode(nodeHandle, SVC, __func__, status);
+            if (!node) {
+                response->set_success(false);
+                return grpc::Status::OK;
+            }
+            if (pinIndex >= node->pinCount()) {
+                response->set_success(false);
+                return grpc::Status::OK;
+            }
+            const Octane::ApiNodePinInfo& pi = node->pinInfoIx(pinIndex);
+            packPinInfo(pi, response->mutable_nodepininfo());
+            response->set_success(true);
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // GrpcServer
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1743,6 +2033,7 @@ void GrpcServer::RunServer() {
     ItemArrayServiceImpl          itemArrayService;
     NodeServiceImpl               nodeService;
     NodeGraphServiceImpl          nodeGraphService;
+    NodePinInfoExServiceImpl      nodePinInfoExService;
 
     // Build and start the server
     grpc::ServerBuilder builder;
@@ -1764,6 +2055,7 @@ void GrpcServer::RunServer() {
     builder.RegisterService(&itemArrayService);
     builder.RegisterService(&nodeService);
     builder.RegisterService(&nodeGraphService);
+    builder.RegisterService(&nodePinInfoExService);
 
     // Configure message sizes (match Octane's settings)
     builder.SetMaxReceiveMessageSize(64 * 1024 * 1024);
