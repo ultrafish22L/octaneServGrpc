@@ -11,7 +11,7 @@ octaneServGrpc is a **thin gRPC wrapper** around the Octane Render SDK. It trans
 │  octaneWebR (Browser)         MCP Server                   │
 │    │ HTTP → Node.js proxy       │ OctaneGrpcClientBase     │
 │    └──────────┬─────────────────┘                          │
-│               │ gRPC (Beta 2 protos)                       │
+│               │ gRPC (96 Octane protos)                       │
 └───────────────┼─────────────────────────────────────────────┘
                 │ port 51022
 ┌───────────────▼─────────────────────────────────────────────┐
@@ -95,8 +95,8 @@ Auth uses HMAC-SHA256 via Windows CNG (`bcrypt.lib`). Keys in `SERVKEY.cpp` from
 
 ## Proto Compatibility
 
-octaneServGrpc serves the **exact same Beta 2 protos** as octane.exe's built-in gRPC server. This means:
+octaneServGrpc serves the **exact same protos** as octane.exe's built-in gRPC server. This means:
 - octaneWebR's `OctaneGrpcClientBase` connects without changes
 - MCP's gRPC client connects without changes
-- No API version translation needed (no Alpha 5 compat layer)
+- No API version translation needed (pass-through mode)
 - 96 proto files compiled to C++ server stubs via protoc

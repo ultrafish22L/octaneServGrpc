@@ -1,6 +1,6 @@
 # octaneServGrpc
 
-A standalone C++ gRPC server that embeds the **Octane Render SDK 2026.2** and serves the exact same Beta 2 proto interface that octaneWebR and MCP already speak. No separate octane.exe needed — the server IS the render engine.
+A standalone C++ gRPC server that embeds the **Octane Render SDK 2026.2** and serves the same proto interface that octaneWebR and MCP already speak. No separate octane.exe needed — the server IS the render engine.
 
 ## What It Does
 

@@ -3,7 +3,7 @@
 ### Done
 
 - Full glass metal DRESS test passed against octaneServGrpc (all 8 steps)
-- Alpha 5 compat test passed (same scene, same results)
+- Compat layer test passed (same scene on both backends, same results)
 - NodeService, ItemService, RenderEngine save/stats — all working
 - Callback streaming wired (render images + statistics)
 

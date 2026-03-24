@@ -2,7 +2,7 @@
 #
 # Builds a Windows tray application that:
 #   1. Links the Octane Render SDK (octane.dll/octane.lib)
-#   2. Hosts a gRPC server serving Beta 2 protos
+#   2. Hosts a gRPC server serving 96 Octane proto services
 #   3. Maps gRPC calls to SDK C++ API calls
 #
 # gRPC is auto-downloaded via FetchContent on first configure (~2-5 min).

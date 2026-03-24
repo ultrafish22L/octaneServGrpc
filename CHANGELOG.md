@@ -6,7 +6,7 @@
 
 **Project scaffolding:**
 - CMakeLists.txt with FetchContent gRPC (v1.62.1, auto-download)
-- 96 Beta 2 proto files compiled to C++ server stubs
+- 96 Octane proto files compiled to C++ server stubs
 - Link Octane Render SDK 2026.2 (`octane.lib` + `octane.dll`)
 - Post-build copies all Octane runtime DLLs to output dir
 - Windows tray app mode (from octaneservermodule) + console debug mode
@@ -68,4 +68,4 @@
 - Full glass metal DRESS test passed — 3 spheres (gold metallic, glass specular, red matte) + floor on golden hour daylight
 - Tested against octaneWebR MCP (78 tools) and preview viewport
 - Scene building end-to-end: create_node → set_attribute → connect_nodes → start_render → save_render
-- Alpha 5 compat layer tested and passing (see `octaneWebR/docs/mcp/ALPHA5_COMPAT.md`)
+- Compat layer tested and passing (see `octaneWebR/docs/mcp/ALPHA5_COMPAT.md`)
