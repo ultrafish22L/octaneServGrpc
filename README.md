@@ -10,8 +10,8 @@ See [QUICKSTART.md](QUICKSTART.md) to build and run. See [docs/](docs/) for arch
 
 ## Status
 
-Full scene building, rendering, and viewport streaming working. Verified with glass metal DRESS test (3-sphere scene end-to-end via MCP).
+Full scene building, rendering, and viewport streaming working. All RPCs hardened with GRPC_SAFE exception handling. Verified with glass metal DRESS test (3-sphere scene end-to-end via MCP).
 
-**Not yet implemented:** Full ItemArray iteration, pick intersection, GRPC_SAFE exception handling (see `docs/PLAN.md`).
+**Not yet implemented:** Full ItemArray iteration, pick intersection, handle staling validation (see `docs/PLAN.md`).
 
 Requires valid Octane subscription (PLORTEST plugin key). Falls back to demo mode without activation.

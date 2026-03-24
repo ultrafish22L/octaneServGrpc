@@ -20,7 +20,7 @@
 
 **Viewport empty** — Check MCP relay on port 51023 (`powershell Get-NetTCPConnection -LocalPort 51023`). If not running, restart MCP process — see `octaneWebR/docs/mcp/BUILD.md` §2 SCRATCH. Also verify RT exists and `start_render` called.
 
-**Scene outliner empty** — Check `log_serv.log` for `ApiItemArrayService.size` errors. "Array not found" = handle registry miss (fixed in v1.0.0 with synthetic array handles).
+**Scene outliner empty** — Check `log_serv.log` for `ApiItemArrayService.size` errors. "Array not found" = handle registry miss. Synthetic array handles should auto-register; restart the server if stale.
 
 **MCP 120s timeout** — Load is fast (<100ms). Timeout means callback streaming not connected. Check `log_mcp.log` for `Callback streaming started`.
 
@@ -36,6 +36,5 @@ Log patterns — success: `REQ...RES 0ms`, unimplemented: `ERR code=12`, not fou
 
 ## Known Limitations
 
-- No exception handling on RPCs (crash on bad input) — see `docs/PLAN.md` §2
-- Handle staling not validated (stale pointers possible)
+- Handle staling not validated (stale pointers possible) — see `docs/PLAN.md` §3
 - In-memory registry only (lost on restart)

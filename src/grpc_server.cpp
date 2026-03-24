@@ -915,9 +915,18 @@ public:
 // ═══════════════════════════════════════════════════════════════════════════
 // LiveLinkService
 // ═══════════════════════════════════════════════════════════════════════════
+// Build number — increment on every code change to verify running code matches build.
+static constexpr int SERV_BUILD = 1;
+
 class LiveLinkServiceImpl final : public livelinkapi::LiveLinkService::Service {
     static constexpr const char* SVC = "LiveLinkService";
 public:
+    grpc::Status GetServVersion(grpc::ServerContext*, const livelinkapi::Empty*,
+        livelinkapi::ServVersionResponse* response) override {
+        response->set_build(SERV_BUILD);
+        return grpc::Status::OK;
+    }
+
     grpc::Status GetCamera(grpc::ServerContext*, const livelinkapi::Empty*,
         livelinkapi::CameraState* response) override {
         GRPC_SAFE_BEGIN(SVC)
@@ -957,15 +966,22 @@ public:
 
             if (request->has_position()) {
                 Octane::float_3 pos = {(float)request->position().x(), (float)request->position().y(), (float)request->position().z()};
-                cam->setPinValue(Octane::P_POSITION, pos, false);
+                cam->setPinValue(Octane::P_POSITION, pos, true);
             }
             if (request->has_target()) {
                 Octane::float_3 tgt = {(float)request->target().x(), (float)request->target().y(), (float)request->target().z()};
-                cam->setPinValue(Octane::P_TARGET, tgt, false);
+                cam->setPinValue(Octane::P_TARGET, tgt, true);
             }
             if (request->has_up()) {
                 Octane::float_3 up = {(float)request->up().x(), (float)request->up().y(), (float)request->up().z()};
-                cam->setPinValue(Octane::P_UP, up, false);
+                float len2 = up.x*up.x + up.y*up.y + up.z*up.z;
+                if (len2 < 1e-12f) {
+                    up = {0.f, 1.f, 0.f}; // degenerate → default
+                } else {
+                    float inv = 1.f / std::sqrt(len2);
+                    up = {up.x * inv, up.y * inv, up.z * inv}; // normalize
+                }
+                cam->setPinValue(Octane::P_UP, up, true);
             }
             Octane::ApiChangeManager::update();
             return grpc::Status::OK;

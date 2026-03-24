@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.4.0 — 2026-03-24
+
+- GRPC_SAFE exception handling on all RPCs (93 methods, SEH + C++ exceptions via `/EHa`)
+- SetCamera evaluate fix — `setPinValue` called with `evaluate=true` so camera updates take effect immediately
+- Up vector normalization guard — zero-length up vectors rejected before reaching SDK
+- Proto consolidation — single source in `proto/`, no duplicate copies
+- Build version tracking — `SERV_BUILD` constant + `GetServVersion` RPC for verifying running binary matches build
+
 ## v1.1.0 — 2026-03-24
 
 - ApiNodeService — create, connect, disconnect, rename, delete, pin enumeration, getPinValue
