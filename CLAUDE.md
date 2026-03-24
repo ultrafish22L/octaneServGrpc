@@ -2,33 +2,34 @@
 
 ### Done
 
-- Full glass metal DRESS test passed against octaneServGrpc (all 8 steps)
-- Compat layer test passed (same scene on both backends, same results)
+- Full glass metal DRESS test passed (all 8 steps)
+- Compat layer test passed (same scene on both backends)
 - NodeService, ItemService, RenderEngine save/stats — all working
 - Callback streaming wired (render images + statistics)
 
 ### Pending
 
-1. PLAN.md §2 — GRPC_SAFE macro (exception handling on all RPCs)
-2. PLAN.md §3 — Handle staling validation (uniqueId == 0 check)
-3. UNIFY.md — Native MCP server (mock gRPC pattern, eliminate octaneWebR dependency)
-4. Render viewport streaming optimization (DX11 shared surface path — PLAN.md §4B)
+1. `docs/PLAN.md` §2 — GRPC_SAFE macro (exception handling on all RPCs)
+2. `docs/PLAN.md` §3 — Handle staling validation (uniqueId == 0 check)
+3. `docs/UNIFY.md` — Native MCP server (eliminate octaneWebR dependency)
 
-**ALL temp files → `temp/`** — test output, debug dumps, scratch. Never pollute project root.
+**ALL temp files → `temp/`**
 
 ## Reference
 
-### Run 
-- Configure: `cd build && cmake .. -G "Visual Studio 17 2022"`
-- Build: `cmake --build . --config Release --target octaneServGrpc`
-- Run: `build/Release/octaneServGrpc.exe [port]` (default 51022)
-- Kill: `taskkill //F //IM octaneServGrpc.exe`
-- `QUICKSTART.md` §1 build, §2 run
+- Build/run/test: [QUICKSTART.md](QUICKSTART.md)
+- Build details: [BUILD.md](BUILD.md)
+- System design: [ARCHITECTURE.md](ARCHITECTURE.md)
+- Service mapping: [REFERENCE.md](REFERENCE.md)
+- Debug issues: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- Hardening plan: [docs/PLAN.md](docs/PLAN.md)
+- Native MCP design: [docs/UNIFY.md](docs/UNIFY.md)
 
-### Debug 
-- Log: `build/Release/log_serv.log`, `--log-level=debug`
-- `QUICKSTART.md` §3 logs
+### Adding a New Service
 
-### Test 
-- Point octaneWebR at port 51022: `npm run dev`
-- `QUICKSTART.md` §4 verification
+1. Proto already in `proto/` — compiled to C++ stubs automatically
+2. `#include "newservice.grpc.pb.h"` in `grpc_server.cpp`
+3. `class NewServiceImpl final : public octaneapi::NewService::Service { ... }`
+4. Override methods with SDK calls
+5. Register: `builder.RegisterService(&newService);`
+6. Rebuild

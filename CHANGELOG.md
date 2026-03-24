@@ -1,71 +1,22 @@
 # Changelog
 
-## v1.0.0 — 2026-03-22
-
-### Initial Release
-
-**Project scaffolding:**
-- CMakeLists.txt with FetchContent gRPC (v1.62.1, auto-download)
-- 96 Octane proto files compiled to C++ server stubs
-- Link Octane Render SDK 2026.2 (`octane.lib` + `octane.dll`)
-- Post-build copies all Octane runtime DLLs to output dir
-- Windows tray app mode (from octaneservermodule) + console debug mode
-
-**SDK integration:**
-- `SdkEngine` — init, auth (HMAC-SHA256 via bcrypt), activate, exit
-- PLORTEST plugin keys (T0/T1/T2) from SDK key files
-- Version/tier validation on startup
-
-**Services implemented:**
-- `ApiInfoService` — octaneVersion, octaneName, isDemoVersion, isSubscriptionVersion, tierIdx
-- `ApiProjectManagerService` — rootNodeGraph, loadProject, saveProject, resetProject, getCurrentProject
-- `ApiChangeManagerService` — update (scene evaluation)
-- `ApiRenderEngineService` — getDeviceCount/Name, clayMode, subSampleMode, renderPriority, setRenderTargetNode, getRenderTargetNode, stopRendering, continueRendering, restartRendering, pauseRendering, getMemoryUsage, getSceneBounds, getRealTime
-- `LiveLinkService` — GetCamera, SetCamera (reads/writes P_POSITION/P_TARGET/P_UP on camera node)
-- `StreamCallbackServiceImpl` — callbackChannel (stream alive, callbacks not yet wired)
-- `ApiItemService` — isGraph, isNode, name, setName, outType, uniqueId, destroy, evaluate, deleteUnconnectedItems
-- `ApiItemArrayService` — size, get
-- `ApiNodeGraphService` — getOwnedItems, type1
-
-**Infrastructure:**
-- HandleRegistry — maps gRPC uint64 handles to SDK ApiItem*/ApiItemArray*
-- ServerLog — level-based file logging (verbose/debug/info/warn/off)
-- LoggingInterceptor — gRPC interceptor, auto-logs every RPC call
-
-**Rename (v1.0.0-rc2):**
-- Moved from `C:\otoyla\GRPC\octane-grpc-bridge\` to `C:\otoyla\GRPC\dev\octaneServGrpc\`
-- Renamed exe from `octane-grpc-bridge.exe` to `octaneServGrpc.exe`
-- Renamed all "bridge/Bridge/BRIDGE" references to "OctaneServ" throughout codebase
-
-**Verified:**
-- Connects to octaneWebR — shows "OctaneRender Studio+ 2026.2 | Subscription | Tier 2"
-- MCP `get_device_info` returns RTX 4090 / 24GB VRAM
-- MCP `load_project` loads teapot.orbx successfully (18ms on server side)
-- Scene tree traversal works (getOwnedItems → size → get)
-- Zero bridge-side errors on scene load
-
-**Known Limitations (v1.0.0):**
-- No exception handling on RPC methods (crash-prone). See PLAN.md §2 for GRPC_SAFE macro hardening.
-- Handle staling not validated (SDK can delete items, leaving stale pointers in registry).
-
----
-
 ## v1.1.0 — 2026-03-24
 
-### Added — Full Scene Building via MCP
+- ApiNodeService — create, connect, disconnect, rename, delete, pin enumeration, getPinValue
+- ApiItemService — get/set attributes by ID, hasAttr, connectedNode, pin count
+- ApiRenderEngineService — saveImage, getStatistics, isCompiling, isRunning
+- StreamCallbackService — render image + statistics streaming wired
+- HandleRegistry — auto-registers pin children on create/connect
+- Glass metal DRESS test verified end-to-end (3 spheres + floor via MCP)
+- Compat layer tested (see `octaneWebR/docs/mcp/ALPHA5_COMPAT.md`)
 
-- `ApiNodeService` — create, connectToIx, connectTo1, disconnectPin, pinCount, pinInfo, getPinValue, setPinValue, destroy
-- `ApiItemService` — getValueByAttrID, setValueByAttrID, hasAttr, getConnectedNode, setPinCount, getByAttrID, setByAttrID
-- `ApiRenderEngineService` — saveImage1 (render to file), getStatistics, isCompiling, isRunning, getFrameId, saveRenderPasses
-- `StreamCallbackServiceImpl` — callbackChannel wired with render image + statistics streaming (buffer copy path)
+## v1.0.0 — 2026-03-22
 
-### Changed
-
-- `HandleRegistry` — auto-registers pin children on create/connect for MCP scene cache compatibility
-
-### Verified
-
-- Full glass metal DRESS test passed — 3 spheres (gold metallic, glass specular, red matte) + floor on golden hour daylight
-- Tested against octaneWebR MCP (78 tools) and preview viewport
-- Scene building end-to-end: create_node → set_attribute → connect_nodes → start_render → save_render
-- Compat layer tested and passing (see `octaneWebR/docs/mcp/ALPHA5_COMPAT.md`)
+- Project scaffolding (CMake + FetchContent gRPC, 96 protos, SDK linking, tray app)
+- SdkEngine — init, auth (HMAC-SHA256/bcrypt), activate, exit
+- ApiInfoService, ApiProjectManagerService, ApiChangeManagerService
+- ApiRenderEngineService (devices, clay, priority, bounds, start/stop)
+- LiveLinkService (camera get/set)
+- ApiItemService (name, type, destroy), ApiItemArrayService, ApiNodeGraphService
+- HandleRegistry, ServerLog, LoggingInterceptor
+- Verified with octaneWebR + MCP (version, device info, ORBX load, scene tree)

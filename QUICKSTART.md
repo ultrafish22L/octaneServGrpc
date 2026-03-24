@@ -1,6 +1,4 @@
-# octaneServGrpc Quick Start
-
-C++ gRPC server wrapping Octane SDK 2026.2. No separate octane.exe — the server IS the render engine.
+# Quick Start
 
 ## §1 Build
 
@@ -9,30 +7,25 @@ cd build && cmake .. -G "Visual Studio 17 2022"   # first time ~4 min (downloads
 cmake --build . --config Release --target octaneServGrpc
 ```
 
-Output: `build/Release/octaneServGrpc.exe` (~911MB with runtime DLLs)
+Requires: VS 2022, CMake 3.16+, Octane SDK at `../OctaneRenderSDK_Studio+_2026_2_win/`. See [BUILD.md](BUILD.md) for details.
 
 ## §2 Run
 
 ```bash
-build/Release/octaneServGrpc.exe [port]   # default 51022
+build/Release/octaneServGrpc.exe [port]   # default 51022, --log-level=debug for verbose
 ```
 
-- Console mode (Debug build) or Windows tray app (Release)
-- Verify: `powershell -Command "Get-NetTCPConnection -LocalPort 51022"`
-- Kill: `taskkill //F //IM octaneServGrpc.exe`
+Verify: `powershell -Command "Get-NetTCPConnection -LocalPort 51022"`
+Kill: `taskkill //F //IM octaneServGrpc.exe`
+Log: `build/Release/log_serv.log`
 
-## §3 Debug
+## §3 Test
 
-- Log file: `build/Release/log_serv.log`
-- Log level: `--log-level=debug` flag or `SERV_LOG_LEVEL` env var
-- Levels: verbose > debug > info > warn > off
-- gRPC interceptor auto-logs every RPC call
+1. Point octaneWebR at port 51022: `npm run dev`
+2. MCP smoke: `get_octane_version`, `get_device_info`
+3. Scene test: `load_project` with ORBX, verify `get_scene_tree` returns nodes
+4. Render test: `start_render`, `save_render` to PNG, verify not blank
+5. Viewport: verify render images stream to preview
+6. Full test: glass metal DRESS — see `octaneWebR/docs/mcp/TEST_PLAN.md`
 
-## §4 Test
-
-- Point octaneWebR at port 51022: `npm run dev` in octaneWebR directory
-- MCP tools: `get_octane_version`, `get_device_info`, `load_project`
-- Scene test: `load_project` with an ORBX, verify `get_scene_tree` returns nodes
-- Render test: `start_render`, `save_render` to PNG, verify image is not blank
-- Viewport test: verify render images stream to octaneWebR preview viewport
-- Full glass metal DRESS test: see `octaneWebR/docs/mcp/TEST_PLAN.md`
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for issues.
