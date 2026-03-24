@@ -34,5 +34,5 @@ build/Release/octaneServGrpc.exe [port]   # default 51022
 - MCP tools: `get_octane_version`, `get_device_info`, `load_project`
 - Scene test: `load_project` with an ORBX, verify `get_scene_tree` returns nodes
 - Render test: `start_render`, `save_render` to PNG, verify image is not blank
+- Viewport test: verify render images stream to octaneWebR preview viewport
 - Full glass metal DRESS test: see `octaneWebR/docs/mcp/TEST_PLAN.md`
-- Note: Render viewport streaming is not yet implemented (callback stub). Use `save_render` to verify renders.

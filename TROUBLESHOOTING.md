@@ -51,13 +51,13 @@ Or run on a different port: `octaneServGrpc.exe 51023`
 Run with `a` command (console mode) or right-click tray icon → Activation. Requires internet connection to OTOY license server. Falls back to demo mode if activation fails.
 
 ### octaneWebR shows "Connected" but viewport is empty
-Expected in Phase 1 — `StreamCallbackService.callbackChannel()` is a stub. SDK render callbacks are not yet wired to the gRPC stream. The scene loads server-side but render frames don't reach the client.
+Check that the MCP relay is running on port 51023 (`powershell Get-NetTCPConnection -LocalPort 51023`). If not, the MCP process needs a full restart — see `octaneWebR/docs/mcp/BUILD.md` §2 SCRATCH step 3. Also verify a render target exists and `start_render` has been called.
 
 ### Scene outliner empty after ORBX load
 Check `log_serv.log` for `ApiItemArrayService.size` errors. If "Array not found", the handle registry isn't finding the `ApiItemArray` returned by `getOwnedItems`. This was fixed by using synthetic array handles (0x8000...) separate from item handles.
 
 ### MCP `load_project` reports 120s timeout
-The MCP client has a 120s timeout. The actual load is fast (check `log_serv.log` — usually <100ms for ORBX/teapot.orbx). The timeout happens because the MCP client waits for a callback confirmation that never arrives (callback streaming not wired yet).
+The MCP client has a 120s timeout. The actual load is fast (check `log_serv.log` — usually <100ms for ORBX/teapot.orbx). If the timeout occurs, check that callback streaming is connected (`log_mcp.log` should show `Callback streaming started`).
 
 ## Debugging
 
@@ -94,9 +94,8 @@ Code 5 = NOT_FOUND. The handle from a previous call is stale or the wrong type.
 
 ## Known Limitations
 
-- No render image streaming (callback stub)
-- No scene building via gRPC (NodeService placeholder)
-- No attribute get/set by ID (ItemService partial)
+- No exception handling on RPC methods (crash-prone on bad input). See PLAN.md §2.
+- Handle staling not validated (SDK can delete items, registry keeps stale pointers)
 - Handle registry doesn't survive process restart (in-memory only)
 - No connection pooling or request batching
 - Single-process only (no distributed rendering)

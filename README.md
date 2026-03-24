@@ -6,7 +6,6 @@ A standalone C++ gRPC server that embeds the **Octane Render SDK 2026.2** and se
 
 - Links `octane.dll` directly — GPU rendering, scene graph, ORBX loading, everything
 - Hosts a gRPC server on port 51022 with all 96 Octane proto services
-- Clients (octaneWebR, MCP) connect with **zero changes** — same protos, same port
 - Windows tray app with activation menu (production) or console mode (debug)
 
 ## Build
@@ -35,9 +34,9 @@ Then point octaneWebR at it: `npm run dev` (connects to 127.0.0.1:51022).
 
 ## Status
 
-**Working:** SDK init/auth, ApiInfo, ApiProjectManager (load/save ORBX), ApiChangeManager, ApiRenderEngine (start/stop/save, devices, clay mode, priority, bounds), LiveLink (camera get/set), ApiItem (get/set attributes by ID, hasAttr), ApiItemArray, ApiNodeGraph (scene tree traversal), ApiNode (create, connect, disconnect, rename, delete, pin enumeration).
+**Working:** SDK init/auth, ApiInfo, ApiProjectManager (load/save ORBX), ApiChangeManager, ApiRenderEngine (start/stop/save, devices, clay mode, priority, bounds), LiveLink (camera get/set), ApiItem (get/set attributes by ID, hasAttr), ApiItemArray, ApiNodeGraph (scene tree traversal), ApiNode (create, connect, disconnect, rename, delete, pin enumeration), StreamCallbackService (render image + statistics streaming).
 
-**Not yet implemented:** Render image streaming (callback stub only — see PLAN.md §3A), full ItemArray iteration, pick intersection. See IMPROVEMENTS.md for backlog.
+**Not yet implemented:** Full ItemArray iteration, pick intersection. See IMPROVEMENTS.md for backlog.
 
 ## License
 

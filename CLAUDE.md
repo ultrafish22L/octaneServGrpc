@@ -9,10 +9,10 @@
 
 ### Pending
 
-1. PLAN.md §1A — GRPC_SAFE macro (exception handling on all RPCs)
-2. PLAN.md §2A — Handle staling validation (uniqueId == 0 check)
+1. PLAN.md §2 — GRPC_SAFE macro (exception handling on all RPCs)
+2. PLAN.md §3 — Handle staling validation (uniqueId == 0 check)
 3. UNIFY.md — Native MCP server (mock gRPC pattern, eliminate octaneWebR dependency)
-4. Render viewport streaming optimization (DX11 shared surface path — PLAN.md §3B)
+4. Render viewport streaming optimization (DX11 shared surface path — PLAN.md §4B)
 
 **ALL temp files → `temp/`** — test output, debug dumps, scratch. Never pollute project root.
 

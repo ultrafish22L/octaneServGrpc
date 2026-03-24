@@ -45,8 +45,7 @@
 - Zero bridge-side errors on scene load
 
 **Known Limitations (v1.0.0):**
-- Render image streaming not functional (StreamCallbackService is a stub — SDK callbacks not wired). Use `save_render` via MCP instead.
-- No exception handling on RPC methods (crash-prone). See PLAN.md §1A for GRPC_SAFE macro hardening.
+- No exception handling on RPC methods (crash-prone). See PLAN.md §2 for GRPC_SAFE macro hardening.
 - Handle staling not validated (SDK can delete items, leaving stale pointers in registry).
 
 ---
