@@ -211,6 +211,44 @@ static void registerPinChildrenRecursive(Octane::ApiNode* node, int depth = 0) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Safe enum normalization helpers — validate SDK enum values before casting
+// to proto enums. Unknown values map to the _UNKNOWN variant (value 0).
+// Prevents raw SDK integers from leaking to clients as stringified numbers.
+// ═══════════════════════════════════════════════════════════════════════════
+
+static octaneapi::NodeType safeNodeType(int raw, const char* ctx = nullptr) {
+    if (octaneapi::NodeType_IsValid(raw))
+        return static_cast<octaneapi::NodeType>(raw);
+    ServerLog::instance().log("WRN", "EnumGuard", ctx ? ctx : "safeNodeType",
+        "normalized unknown SDK NodeType " + std::to_string(raw) + " → NT_UNKNOWN");
+    return octaneapi::NT_UNKNOWN;
+}
+
+static octaneapi::NodePinType safePinType(int raw, const char* ctx = nullptr) {
+    if (octaneapi::NodePinType_IsValid(raw))
+        return static_cast<octaneapi::NodePinType>(raw);
+    ServerLog::instance().log("WRN", "EnumGuard", ctx ? ctx : "safePinType",
+        "normalized unknown SDK NodePinType " + std::to_string(raw) + " → PT_UNKNOWN");
+    return octaneapi::PT_UNKNOWN;
+}
+
+static octaneapi::NodeGraphType safeGraphType(int raw, const char* ctx = nullptr) {
+    if (octaneapi::NodeGraphType_IsValid(raw))
+        return static_cast<octaneapi::NodeGraphType>(raw);
+    ServerLog::instance().log("WRN", "EnumGuard", ctx ? ctx : "safeGraphType",
+        "normalized unknown SDK NodeGraphType " + std::to_string(raw) + " → GT_UNKNOWN");
+    return octaneapi::GT_UNKNOWN;
+}
+
+static octaneapi::ImageType safeImageType(int raw, const char* ctx = nullptr) {
+    if (octaneapi::ImageType_IsValid(raw))
+        return static_cast<octaneapi::ImageType>(raw);
+    ServerLog::instance().log("WRN", "EnumGuard", ctx ? ctx : "safeImageType",
+        "normalized unknown SDK ImageType " + std::to_string(raw) + " → IMAGE_TYPE_LDR_RGBA");
+    return octaneapi::IMAGE_TYPE_LDR_RGBA;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ApiInfoService
 // ═══════════════════════════════════════════════════════════════════════════
 class InfoServiceImpl final : public octaneapi::ApiInfoService::Service {
@@ -265,9 +303,9 @@ public:
                 return failNotFound(SVC, __func__, static_cast<uint64_t>(type), "nodeType");
             }
             auto* r = response->mutable_result();
-            r->set_type(static_cast<octaneapi::NodeType>(info->mType));
+            r->set_type(safeNodeType(static_cast<int>(info->mType), "nodeInfo"));
             r->set_description(info->mDescription ? info->mDescription : "");
-            r->set_outtype(static_cast<octaneapi::NodePinType>(info->mOutType));
+            r->set_outtype(safePinType(static_cast<int>(info->mOutType), "nodeInfo"));
             r->set_nodecolor(info->mNodeColor);
             r->set_islinker(info->mIsLinker);
             r->set_isoutputlinker(info->mIsOutputLinker);
@@ -356,13 +394,13 @@ public:
 
             auto* cg = response->mutable_compatgraphs();
             for (size_t i = 0; i < compatGraphsSize; ++i) {
-                cg->add_data(static_cast<octaneapi::NodeGraphType>(compatGraphs[i]));
+                cg->add_data(safeGraphType(static_cast<int>(compatGraphs[i]), "getCompatibleTypes"));
             }
             response->set_compatgraphssize(static_cast<uint32_t>(compatGraphsSize));
 
             auto* cn = response->mutable_compatnodes();
             for (size_t i = 0; i < compatNodesSize; ++i) {
-                cn->add_data(static_cast<octaneapi::NodeType>(compatNodes[i]));
+                cn->add_data(safeNodeType(static_cast<int>(compatNodes[i]), "getCompatibleTypes"));
             }
             response->set_compatnodessize(static_cast<uint32_t>(compatNodesSize));
             return grpc::Status::OK;
@@ -763,7 +801,7 @@ public:
                     const Octane::ApiRenderImage& img = renderImages.mData[i];
                     auto* protoImg = arr->add_data();
 
-                    protoImg->set_type(static_cast<octaneapi::ImageType>(img.mType));
+                    protoImg->set_type(safeImageType(static_cast<int>(img.mType), "renderImages"));
                     protoImg->set_colorspace(static_cast<octaneapi::NamedColorSpace>(img.mColorSpace));
                     protoImg->set_islinear(img.mIsLinear);
                     auto* sz = protoImg->mutable_size();
@@ -933,7 +971,7 @@ public:
 // LiveLinkService
 // ═══════════════════════════════════════════════════════════════════════════
 // Build number — increment on every code change to verify running code matches build.
-static constexpr int SERV_BUILD = 2;
+static constexpr int SERV_BUILD = 4;
 
 class LiveLinkServiceImpl final : public livelinkapi::LiveLinkService::Service {
     static constexpr const char* SVC = "LiveLinkService";
@@ -1144,7 +1182,7 @@ public:
             grpc::Status status;
             auto* item = requireItem(request->objectptr().handle(), SVC, __func__, status);
             if (!item) return status;
-            response->set_result(static_cast<octaneapi::NodePinType>(item->outType()));
+            response->set_result(safePinType(static_cast<int>(item->outType()), "ApiItem::outType"));
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -1330,6 +1368,12 @@ public:
             if (!item) return status;
 
             Octane::AttributeId attrId = static_cast<Octane::AttributeId>(request->attribute_id());
+            if (!item->hasAttr(attrId)) {
+                std::ostringstream oss;
+                oss << "attribute " << static_cast<int>(attrId)
+                    << " not supported on handle " << request->objectptr().handle();
+                return failInvalidArg(SVC, __func__, oss.str());
+            }
             bool evaluate = request->has_evaluate() ? request->evaluate() : true;
 
             switch (request->value_case()) {
@@ -1606,7 +1650,13 @@ public:
             auto* graph = requireGraph(graphHandle, SVC, __func__, status);
             if (!graph) return status;
 
-            Octane::NodeType nodeType = static_cast<Octane::NodeType>(request->type());
+            int rawType = static_cast<int>(request->type());
+            if (!octaneapi::NodeType_IsValid(rawType) || rawType == 0) {
+                return failInvalidArg(SVC, __func__,
+                    "invalid node type " + std::to_string(rawType)
+                    + " — must be a known NodeType (not NT_UNKNOWN/0)");
+            }
+            Octane::NodeType nodeType = static_cast<Octane::NodeType>(rawType);
             bool configurePins = request->configurepins();
 
             Octane::ApiNode* node = Octane::ApiNode::create(nodeType, *graph, configurePins);
@@ -1636,7 +1686,7 @@ public:
             grpc::Status status;
             auto* node = requireNode(request->objectptr().handle(), SVC, __func__, status);
             if (!node) return status;
-            response->set_result(static_cast<octaneapi::NodeType>(node->type()));
+            response->set_result(safeNodeType(static_cast<int>(node->type()), "ApiNode::type"));
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -1665,7 +1715,7 @@ public:
                 oss << "pin index " << index << " out of range (pinCount is " << node->pinCount() << ")";
                 return failInvalidArg(SVC, __func__, oss.str());
             }
-            response->set_result(static_cast<octaneapi::NodePinType>(node->pinTypeIx(index)));
+            response->set_result(safePinType(static_cast<int>(node->pinTypeIx(index)), "ApiNode::pinTypeIx"));
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -1792,9 +1842,9 @@ public:
             if (!node) return status;
             const Octane::ApiNodeInfo& ni = node->info();
             auto* r = response->mutable_result();
-            r->set_type(static_cast<octaneapi::NodeType>(ni.mType));
+            r->set_type(safeNodeType(static_cast<int>(ni.mType), "ApiNode::info"));
             r->set_description(ni.mDescription ? ni.mDescription : "");
-            r->set_outtype(static_cast<octaneapi::NodePinType>(ni.mOutType));
+            r->set_outtype(safePinType(static_cast<int>(ni.mOutType), "ApiNode::info"));
             r->set_nodecolor(ni.mNodeColor);
             r->set_islinker(ni.mIsLinker);
             r->set_isoutputlinker(ni.mIsOutputLinker);
@@ -1960,7 +2010,7 @@ public:
             grpc::Status status;
             auto* graph = requireGraph(request->objectptr().handle(), SVC, __func__, status);
             if (!graph) return status;
-            response->set_result(static_cast<octaneapi::NodeGraphType>(graph->type()));
+            response->set_result(safeGraphType(static_cast<int>(graph->type()), "NodeGraph::type"));
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -1976,14 +2026,14 @@ class NodePinInfoExServiceImpl final : public octaneapi::ApiNodePinInfoExService
     // Packs core fields; sub-info (float ranges, enum values) filled where available.
     static void packPinInfo(const Octane::ApiNodePinInfo& pi, octaneapi::ApiNodePinInfo* out) {
         out->set_id(static_cast<octaneapi::PinId>(pi.mId));
-        out->set_type(static_cast<octaneapi::NodePinType>(pi.mType));
+        out->set_type(safePinType(static_cast<int>(pi.mType), "packPinInfo"));
         out->set_istypedtexturepin(pi.mIsTypedTexturePin);
         out->set_staticname(pi.mStaticName ? pi.mStaticName : "");
         out->set_staticlabel(pi.mStaticLabel ? pi.mStaticLabel : "");
         out->set_description(pi.mDescription ? pi.mDescription : "");
         out->set_groupname(pi.mGroupName ? pi.mGroupName : "");
         out->set_pincolor(pi.mPinColor);
-        out->set_defaultnodetype(static_cast<octaneapi::NodeType>(pi.mDefaultNodeType));
+        out->set_defaultnodetype(safeNodeType(static_cast<int>(pi.mDefaultNodeType), "packPinInfo"));
         out->set_minversion(pi.mMinVersion);
         out->set_endversion(pi.mEndVersion);
         // Float pin info — dimension-based ranges
