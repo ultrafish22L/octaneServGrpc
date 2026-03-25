@@ -933,7 +933,7 @@ public:
 // LiveLinkService
 // ═══════════════════════════════════════════════════════════════════════════
 // Build number — increment on every code change to verify running code matches build.
-static constexpr int SERV_BUILD = 1;
+static constexpr int SERV_BUILD = 2;
 
 class LiveLinkServiceImpl final : public livelinkapi::LiveLinkService::Service {
     static constexpr const char* SVC = "LiveLinkService";
@@ -1212,6 +1212,10 @@ public:
             }
 
             // Get attribute type to dispatch correctly
+            // Inner try/catch: some SDK nodes throw on attrInfo() or get() for valid
+            // attribute types (e.g. Round Edges children, material layer children).
+            // Return empty OK instead of INTERNAL — caller treats empty as "no value".
+            try {
             const Octane::ApiAttributeInfo& info = item->attrInfo(attrId);
             switch (info.mType) {
                 case Octane::AT_BOOL: {
@@ -1301,6 +1305,18 @@ public:
                         << " for attribute " << static_cast<int>(attrId);
                     return failInvalidArg(SVC, __func__, oss.str());
                 }
+            }
+            } catch (const std::exception& e) {
+                ServerLog::instance().log("WRN", SVC, "getValueByAttrID",
+                    "threw for attr " + std::to_string(static_cast<int>(attrId))
+                    + " on handle " + std::to_string(request->objectptr().handle())
+                    + ": " + e.what());
+                return grpc::Status::OK; // empty response = no value
+            } catch (...) {
+                ServerLog::instance().log("WRN", SVC, "getValueByAttrID",
+                    "threw unknown exception for attr " + std::to_string(static_cast<int>(attrId))
+                    + " on handle " + std::to_string(request->objectptr().handle()));
+                return grpc::Status::OK; // empty response = no value
             }
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
@@ -1505,10 +1521,19 @@ public:
     }
 
 private:
-    // Helper to pack SDK ApiAttributeInfo into proto message
+    // Helper to pack SDK ApiAttributeInfo into proto message.
+    // Normalizes unknown/internal SDK attribute types to AT_UNKNOWN
+    // so the client never receives raw numeric enum values (e.g. 32759).
     static void packAttrInfo(const Octane::ApiAttributeInfo& info, octaneapi::ApiAttributeInfo* out) {
         out->set_id(static_cast<octaneapi::AttributeId>(info.mId));
-        out->set_type(static_cast<octaneapi::AttributeType>(info.mType));
+        int rawType = static_cast<int>(info.mType);
+        if (octaneapi::AttributeType_IsValid(rawType)) {
+            out->set_type(static_cast<octaneapi::AttributeType>(rawType));
+        } else {
+            out->set_type(octaneapi::AT_UNKNOWN);
+            ServerLog::instance().log("WRN", SVC, "packAttrInfo",
+                "normalized unknown SDK type " + std::to_string(rawType) + " → AT_UNKNOWN");
+        }
         out->set_isarray(info.mIsArray);
         out->set_filenameattribute(static_cast<octaneapi::AttributeId>(info.mFileNameAttribute));
         out->set_packageattribute(static_cast<octaneapi::AttributeId>(info.mPackageAttribute));
