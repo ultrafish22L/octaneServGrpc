@@ -640,6 +640,23 @@ public:
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
+    grpc::Status setSharedSurfaceOutputType(grpc::ServerContext*, const octaneapi::ApiRenderEngine::setSharedSurfaceOutputTypeRequest* request,
+        google::protobuf::Empty*) override {
+        GRPC_SAFE_BEGIN(SVC)
+            auto type = static_cast<Octane::SharedSurfaceType>(request->type());
+            bool realTime = request->realtime();
+            Octane::ApiRenderEngine::setSharedSurfaceOutputType(type, realTime);
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
+    grpc::Status getSharedSurfaceOutputType(grpc::ServerContext*, const octaneapi::ApiRenderEngine::getSharedSurfaceOutputTypeRequest*,
+        octaneapi::ApiRenderEngine::getSharedSurfaceOutputTypeResponse* response) override {
+        GRPC_SAFE_BEGIN(SVC)
+            auto type = Octane::ApiRenderEngine::getSharedSurfaceOutputType();
+            response->set_result(static_cast<octaneapi::SharedSurfaceType>(type));
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
     grpc::Status setOnNewImageCallback(grpc::ServerContext*, const octaneapi::ApiRenderEngine::setOnNewImageCallbackRequest*,
         octaneapi::ApiRenderEngine::setOnNewImageCallbackResponse* response) override {
         GRPC_SAFE_BEGIN(SVC)
