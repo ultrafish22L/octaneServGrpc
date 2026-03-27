@@ -832,12 +832,23 @@ public:
 
                     // Pack pixel buffer
                     if (img.mBuffer && img.mSize.x > 0 && img.mSize.y > 0) {
+                        if (img.mPitch == 0) {
+                            std::cerr << "[grabRenderResult] Image " << i << " has zero pitch — skipping" << std::endl;
+                            continue;
+                        }
                         // Calculate buffer size based on image type
                         size_t bytesPerPixel = 4; // default RGBA8
                         switch (img.mType) {
                             case Octane::IMAGE_TYPE_LDR_RGBA: bytesPerPixel = 4; break;
                             case Octane::IMAGE_TYPE_HDR_RGBA: bytesPerPixel = 16; break; // 4 floats
                             default: bytesPerPixel = 4; break;
+                        }
+                        // Overflow protection: validate before multiplying
+                        if (static_cast<size_t>(img.mPitch) > SIZE_MAX / img.mSize.y / bytesPerPixel) {
+                            std::cerr << "[grabRenderResult] Image " << i << " buffer size overflow ("
+                                      << img.mPitch << "x" << img.mSize.y << "x" << bytesPerPixel
+                                      << ") — skipping" << std::endl;
+                            continue;
                         }
                         size_t bufSize = static_cast<size_t>(img.mPitch) * img.mSize.y * bytesPerPixel;
                         auto* buf = protoImg->mutable_buffer();

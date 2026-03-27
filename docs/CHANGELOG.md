@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.4.1 — 2026-03-27
+
+- Robustness: mPitch zero-guard in `grabRenderResult` — skips images with zero pitch instead of sending empty buffer
+- Robustness: buffer size overflow protection — `mPitch * mSize.y * bytesPerPixel` checked against `SIZE_MAX` before allocation
+
 ## v2.4.0 — 2026-03-24
 
 - GRPC_SAFE exception handling on all RPCs (93 methods, SEH + C++ exceptions via `/EHa`)

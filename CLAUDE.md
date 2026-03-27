@@ -1,4 +1,4 @@
-## Last Session (2026-03-24)
+## Last Session (2026-03-27)
 
 ### Done
 
@@ -11,6 +11,7 @@
 - Proto consolidation (single source in `proto/`)
 - Build version tracking (`SERV_BUILD` constant + `GetServVersion` RPC)
 - GRPC_SAFE exception handling on all RPCs (93 methods wrapped)
+- Robustness: mPitch zero-guard + buffer overflow protection in `grabRenderResult`
 
 ### Pending
 
@@ -23,10 +24,17 @@
 
 **Ask the user before guessing on C++ SDK calls.** The user is a C++ expert and knows the Octane SDK well. When in doubt about SDK behavior (evaluate params, pin semantics, node lifecycle), ask — don't iterate through trial-and-error builds. A 10-second question saves a 30-minute rebuild cycle.
 
+## Build & Test
+
+| Command | What |
+| ------- | ---- |
+| `cmake --build build --config Release` | Incremental build (10-30s) |
+| `cmake -B build -DCMAKE_BUILD_TYPE=Release` | First build (~4min) |
+
+Full details: [QUICKSTART.md](QUICKSTART.md), [docs/BUILD.md](docs/BUILD.md)
+
 ## Reference
 
-- Build/run/test: [QUICKSTART.md](QUICKSTART.md)
-- Build details: [docs/BUILD.md](docs/BUILD.md)
 - System design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Service mapping: [docs/REFERENCE.md](docs/REFERENCE.md)
 - Debug issues: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
