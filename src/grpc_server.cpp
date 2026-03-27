@@ -38,6 +38,15 @@
 #include "apinodesystem_6.grpc.pb.h"
 #include "apinodesystem_7.grpc.pb.h"
 #include "apinodepininfohelper.grpc.pb.h"
+#include "sharedsurfaceframe.grpc.pb.h"
+
+// Octane shared surface API (dxSS path)
+#include "apisharedsurface.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#include <map>
+#endif
 
 namespace OctaneServ {
 
@@ -813,6 +822,13 @@ public:
                     protoImg->set_calculatedsamplesperpixel(img.mCalculatedSamplesPerPixel);
                     protoImg->set_regionsamplesperpixel(img.mRegionSamplesPerPixel);
                     protoImg->set_maxsamplesperpixel(img.mMaxSamplesPerPixel);
+
+                    // Warn if shared surface mode is on but caller used pixel path
+                    if (!img.mBuffer && img.mSharedSurface) {
+                        std::cerr << "[grabRenderResult] Image " << i
+                                  << " has shared surface but no pixel buffer — "
+                                  << "client should use grabSharedFrame instead" << std::endl;
+                    }
 
                     // Pack pixel buffer
                     if (img.mBuffer && img.mSize.x > 0 && img.mSize.y > 0) {
@@ -2112,6 +2128,155 @@ public:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SharedSurfaceFrameService — dxSS viewport path
+// ═══════════════════════════════════════════════════════════════════════════
+
+#ifdef _WIN32
+// State for cross-process handle duplication
+static std::atomic<DWORD> sViewportClientPid{0};
+static std::mutex sSharedFrameMutex;
+static std::map<uint64_t, Octane::ApiSharedSurface*> sClonedSurfaces;
+static std::atomic<uint64_t> sNextFrameId{1};
+#endif
+
+class SharedSurfaceFrameServiceImpl final
+    : public octaneapi::SharedSurfaceFrameService::Service {
+    static constexpr const char* SVC = "SharedSurfaceFrame";
+
+public:
+    grpc::Status registerViewportClient(
+        grpc::ServerContext*,
+        const octaneapi::RegisterViewportClientRequest* request,
+        google::protobuf::Empty*) override {
+        GRPC_SAFE_BEGIN(SVC)
+#ifdef _WIN32
+            DWORD pid = request->pid();
+            sViewportClientPid.store(pid);
+            ServerLog::instance().res(SVC, __func__,
+                "Registered viewport client PID " + std::to_string(pid));
+#endif
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
+
+    grpc::Status grabSharedFrame(
+        grpc::ServerContext*,
+        const google::protobuf::Empty*,
+        octaneapi::GrabSharedFrameResponse* response) override {
+        GRPC_SAFE_BEGIN(SVC)
+#ifdef _WIN32
+            DWORD clientPid = sViewportClientPid.load();
+            if (clientPid == 0) {
+                response->set_result(false);
+                return grpc::Status::OK;
+            }
+
+            // Grab the current render result
+            Octane::ApiArray<Octane::ApiRenderImage> renderImages;
+            bool grabbed = Octane::ApiRenderEngine::grabRenderResult(renderImages);
+            if (!grabbed || renderImages.mSize == 0) {
+                response->set_result(false);
+                return grpc::Status::OK;
+            }
+
+            // Find first image with a shared surface
+            const Octane::ApiRenderImage* ssImage = nullptr;
+            for (size_t i = 0; i < renderImages.mSize; ++i) {
+                if (renderImages.mData[i].mSharedSurface) {
+                    ssImage = &renderImages.mData[i];
+                    break;
+                }
+            }
+
+            if (!ssImage) {
+                // No shared surface — caller should fall back to pixel path.
+                // Release the render result since we're not using the pixels here.
+                Octane::ApiRenderEngine::releaseRenderResult();
+                response->set_result(false);
+                return grpc::Status::OK;
+            }
+
+            // Clone the shared surface to keep it alive after releaseRenderResult
+            Octane::ApiSharedSurface* cloned = ssImage->mSharedSurface->clone();
+            void* ssHandle = cloned->getD3D11Handle();
+            uint64_t luid  = cloned->getD3D11AdapterLuid();
+
+            // Release the render result (cloned surface stays alive)
+            Octane::ApiRenderEngine::releaseRenderResult();
+
+            // DuplicateHandle into the Electron process
+            HANDLE targetProc = OpenProcess(PROCESS_DUP_HANDLE, FALSE, clientPid);
+            if (!targetProc) {
+                cloned->release();
+                response->set_result(false);
+                return grpc::Status(grpc::StatusCode::INTERNAL,
+                    "Failed to open client process for DuplicateHandle");
+            }
+
+            HANDLE dupHandle = NULL;
+            BOOL dupOk = DuplicateHandle(
+                GetCurrentProcess(), ssHandle,
+                targetProc, &dupHandle,
+                0, FALSE, DUPLICATE_SAME_ACCESS);
+            CloseHandle(targetProc);
+
+            if (!dupOk) {
+                cloned->release();
+                response->set_result(false);
+                return grpc::Status(grpc::StatusCode::INTERNAL,
+                    "DuplicateHandle failed");
+            }
+
+            // Track the cloned surface for later release
+            uint64_t frameId = sNextFrameId.fetch_add(1);
+            {
+                std::lock_guard<std::mutex> lock(sSharedFrameMutex);
+                sClonedSurfaces[frameId] = cloned;
+            }
+
+            // Populate the response
+            auto* frame = response->mutable_frame();
+            frame->set_handle(reinterpret_cast<uint64_t>(dupHandle));
+            frame->set_adapterluid(luid);
+            frame->set_width(ssImage->mSize.x);
+            frame->set_height(ssImage->mSize.y);
+            frame->set_pitch(ssImage->mPitch);
+            frame->set_format(static_cast<uint32_t>(ssImage->mType == Octane::IMAGE_TYPE_HDR_RGBA
+                ? 2   // DXGI_FORMAT_R32G32B32A32_FLOAT
+                : 28  // DXGI_FORMAT_R8G8B8A8_UNORM
+            ));
+            frame->set_frameid(frameId);
+            frame->set_samplesperpixel(ssImage->mTonemappedSamplesPerPixel);
+            frame->set_rendertime(ssImage->mRenderTime);
+            frame->set_imagetype(static_cast<uint32_t>(ssImage->mType));
+            response->set_result(true);
+#else
+            response->set_result(false);
+#endif
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
+
+    grpc::Status releaseSharedFrame(
+        grpc::ServerContext*,
+        const octaneapi::ReleaseSharedFrameRequest* request,
+        google::protobuf::Empty*) override {
+        GRPC_SAFE_BEGIN(SVC)
+#ifdef _WIN32
+            uint64_t frameId = request->frameid();
+            std::lock_guard<std::mutex> lock(sSharedFrameMutex);
+            auto it = sClonedSurfaces.find(frameId);
+            if (it != sClonedSurfaces.end()) {
+                it->second->release();
+                sClonedSurfaces.erase(it);
+            }
+#endif
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // GrpcServer
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2142,6 +2307,12 @@ void GrpcServer::RunServer() {
     NodeServiceImpl               nodeService;
     NodeGraphServiceImpl          nodeGraphService;
     NodePinInfoExServiceImpl      nodePinInfoExService;
+    SharedSurfaceFrameServiceImpl sharedSurfaceFrameService;
+
+    // Shared surface output is NOT enabled at startup — it must be enabled
+    // on demand by the Electron client via the setSharedSurfaceOutputType RPC.
+    // Enabling it globally breaks the regular grabRenderResult pixel path
+    // (mBuffer becomes null when the SDK produces shared surfaces instead).
 
     // Build and start the server
     grpc::ServerBuilder builder;
@@ -2164,6 +2335,7 @@ void GrpcServer::RunServer() {
     builder.RegisterService(&nodeService);
     builder.RegisterService(&nodeGraphService);
     builder.RegisterService(&nodePinInfoExService);
+    builder.RegisterService(&sharedSurfaceFrameService);
 
     // Configure message sizes (match Octane's settings)
     builder.SetMaxReceiveMessageSize(64 * 1024 * 1024);
