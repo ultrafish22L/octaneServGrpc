@@ -695,6 +695,34 @@ public:
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
+    grpc::Status deviceSharedSurfaceInfo(grpc::ServerContext*, const octaneapi::ApiRenderEngine::deviceSharedSurfaceInfoRequest* request,
+        octaneapi::ApiRenderEngine::deviceSharedSurfaceInfoResponse* response) override {
+        GRPC_SAFE_BEGIN(SVC)
+            uint32_t idx = request->index();
+            auto info = Octane::ApiRenderEngine::deviceSharedSurfaceInfo(idx);
+            auto* result = response->mutable_result();
+            auto* d3d11 = result->mutable_d3d11();
+            d3d11->set_msupported(info.mD3D11.mSupported);
+            d3d11->set_madapterluid(info.mD3D11.mAdapterLuid);
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
+    grpc::Status setAsyncTonemapRenderPasses(grpc::ServerContext*, const octaneapi::ApiRenderEngine::setAsyncTonemapRenderPassesRequest* request,
+        octaneapi::ApiRenderEngine::setAsyncTonemapRenderPassesResponse* response) override {
+        GRPC_SAFE_BEGIN(SVC)
+            const auto& protoArr = request->tonemappasses();
+            std::vector<Octane::RenderPassId> passes;
+            for (int i = 0; i < protoArr.data_size(); ++i) {
+                passes.push_back(static_cast<Octane::RenderPassId>(protoArr.data(i)));
+            }
+            Octane::ApiArray<Octane::RenderPassId> arr;
+            arr.mData = passes.data();
+            arr.mSize = passes.size();
+            bool ok = Octane::ApiRenderEngine::setAsyncTonemapRenderPasses(arr);
+            response->set_result(ok);
+            return grpc::Status::OK;
+        GRPC_SAFE_END(SVC)
+    }
     grpc::Status setSharedSurfaceOutputType(grpc::ServerContext*, const octaneapi::ApiRenderEngine::setSharedSurfaceOutputTypeRequest* request,
         google::protobuf::Empty*) override {
         GRPC_SAFE_BEGIN(SVC)
@@ -2271,14 +2299,44 @@ public:
                 sClonedSurfaces[frameId] = cloned;
             }
 
+            // Get dimensions — ApiRenderImage.mSize may be {0,0} when SS is active,
+            // so fall back to render statistics if needed.
+            uint32_t frameW = ssImage->mSize.x;
+            uint32_t frameH = ssImage->mSize.y;
+            uint32_t framePitch = ssImage->mPitch;
+            auto frameType = ssImage->mType;
+
+            if (frameW == 0 || frameH == 0) {
+                // SS mode: mSize is not populated — get from render statistics
+                Octane::RenderResultStatistics stats;
+                stats.clear();
+                Octane::ApiRenderEngine::getRenderStatistics(stats);
+                if (stats.mSetSize.x > 0 && stats.mSetSize.y > 0) {
+                    frameW = stats.mSetSize.x;
+                    frameH = stats.mSetSize.y;
+                    // Estimate pitch: width * bytes_per_pixel
+                    uint32_t bpp = (frameType == Octane::IMAGE_TYPE_HDR_RGBA) ? 16 : 4;
+                    framePitch = frameW * bpp;
+                    // Default to LDR if type is 0
+                    if (static_cast<int>(frameType) == 0) {
+                        frameType = Octane::IMAGE_TYPE_LDR_RGBA;
+                    }
+                }
+            }
+
+            std::cerr << "[grabSharedFrame] frame=" << frameW << "x" << frameH
+                      << " pitch=" << framePitch << " type=" << static_cast<int>(frameType)
+                      << " handle=" << ssHandle << " dupHandle=" << dupHandle
+                      << " frameId=" << frameId << std::endl;
+
             // Populate the response
             auto* frame = response->mutable_frame();
             frame->set_handle(reinterpret_cast<uint64_t>(dupHandle));
             frame->set_adapterluid(luid);
-            frame->set_width(ssImage->mSize.x);
-            frame->set_height(ssImage->mSize.y);
-            frame->set_pitch(ssImage->mPitch);
-            frame->set_format(static_cast<uint32_t>(ssImage->mType == Octane::IMAGE_TYPE_HDR_RGBA
+            frame->set_width(frameW);
+            frame->set_height(frameH);
+            frame->set_pitch(framePitch);
+            frame->set_format(static_cast<uint32_t>(frameType == Octane::IMAGE_TYPE_HDR_RGBA
                 ? 2   // DXGI_FORMAT_R32G32B32A32_FLOAT
                 : 28  // DXGI_FORMAT_R8G8B8A8_UNORM
             ));
