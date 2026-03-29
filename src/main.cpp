@@ -16,6 +16,7 @@
 #include <thread>
 #include <string>
 #include <atomic>
+#include <memory>
 #include <iostream>
 
 #include "resource.h"
@@ -33,18 +34,17 @@ static constexpr uint16_t DEFAULT_PORT = 51022;
 class AppThread {
 public:
     AppThread(OctaneServ::GrpcServer* server) : mServer(server) {
-        mThread = new std::thread(&start, this);
+        mThread = std::make_unique<std::thread>(&start, this);
     }
 
     void stop() {
         mServer->StopServer();
-        mThread->join();
-        delete mThread;
-        mThread = nullptr;
+        if (mThread && mThread->joinable())
+            mThread->join();
     }
 
 private:
-    std::thread* mThread = nullptr;
+    std::unique_ptr<std::thread> mThread;
     OctaneServ::GrpcServer* mServer = nullptr;
 
     static unsigned int start(void* param) {
@@ -87,6 +87,19 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
 
+    // Parse command line for port and log level
+    uint16_t port = DEFAULT_PORT;
+    OctaneServ::LogLevel logLevel = OctaneServ::LogLevel::Debug;
+    std::string cmdline = lpCmdLine;
+    if (!cmdline.empty()) {
+        try { port = static_cast<uint16_t>(std::stoi(cmdline)); } catch (...) {}
+    }
+    const char* envLevel = std::getenv("SERV_LOG_LEVEL");
+    if (envLevel) logLevel = OctaneServ::ServerLog::parseLevel(envLevel);
+
+    // Initialize file logging (parity with console entry point)
+    OctaneServ::ServerLog::instance().init("octaneServGrpc", logLevel);
+
     // Initialize global strings
     _tcscpy_s(szTitle, MAX_LOADSTRING, _T("OctaneServGrpc"));
     _tcscpy_s(szWindowClass, MAX_LOADSTRING, _T("OCTANESERVGRPC"));
@@ -98,19 +111,15 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 
     // Set up tray icon
     HICON hIconSmall = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON1));
+    if (!hIconSmall) {
+        ::MessageBox(0, _T("Failed to load tray icon resource"), _T("OctaneServGrpc"), MB_OK | MB_ICONWARNING);
+    }
     TaskStruct.cbSize = sizeof(NOTIFYICONDATA);
     TaskStruct.hWnd = hWnd;
     TaskStruct.uID = 1;
     TaskStruct.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
     TaskStruct.uCallbackMessage = WM_APP + 100;
     TaskStruct.hIcon = hIconSmall;
-
-    // Parse command line for port
-    uint16_t port = DEFAULT_PORT;
-    std::string cmdline = lpCmdLine;
-    if (!cmdline.empty()) {
-        try { port = static_cast<uint16_t>(std::stoi(cmdline)); } catch (...) {}
-    }
 
     // Initialize Octane SDK
     if (!OctaneServ::SdkEngine::Init("PLORTEST", true)) {
@@ -131,12 +140,13 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
         ::DispatchMessage(&msg);
     }
 
-    // Shutdown
+    // Shutdown — unregister SDK callbacks first to prevent firing into torn-down state
+    OctaneServ::SdkEngine::UnregisterCallbacks();
+
     gAppThread->stop();
     delete gServer;
     gServer = nullptr;
 
-    OctaneServ::SdkEngine::UnregisterCallbacks();
     OctaneServ::SdkEngine::Exit();
 
     ::Shell_NotifyIcon(NIM_DELETE, &TaskStruct);
@@ -254,7 +264,10 @@ void UpdateTaskBarInfo(bool init) {
     }
 
     strncpy_s(TaskStruct.szTip, tip.c_str(), sizeof(TaskStruct.szTip) - 1);
-    ::Shell_NotifyIcon(init ? NIM_ADD : NIM_MODIFY, &TaskStruct);
+    if (!::Shell_NotifyIcon(init ? NIM_ADD : NIM_MODIFY, &TaskStruct)) {
+        OctaneServ::ServerLog::instance().err("TrayIcon", "Shell_NotifyIcon",
+            init ? "NIM_ADD failed" : "NIM_MODIFY failed");
+    }
 }
 
 //--------------------------------------------------------------------------------
@@ -308,9 +321,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    OctaneServ::SdkEngine::UnregisterCallbacks();
     gAppThread->stop();
     delete gServer;
-    OctaneServ::SdkEngine::UnregisterCallbacks();
     OctaneServ::SdkEngine::Exit();
     return 0;
 }
@@ -368,10 +381,10 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << "[OctaneServGrpc] Shutting down..." << std::endl;
+    OctaneServ::SdkEngine::UnregisterCallbacks();
     gAppThread->stop();
     delete gServer;
     gServer = nullptr;
-    OctaneServ::SdkEngine::UnregisterCallbacks();
     OctaneServ::SdkEngine::Exit();
     std::cout << "[OctaneServGrpc] Done." << std::endl;
     return 0;

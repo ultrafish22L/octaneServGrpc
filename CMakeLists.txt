@@ -173,8 +173,17 @@ set(SERV_SOURCES
     src/util/server_log.cpp
 )
 
-if(WIN32)
-    # Console app for debugging (change to WIN32 for release tray app)
+option(SERV_TRAY_APP "Build as Windows tray app instead of console" ON)
+
+if(WIN32 AND SERV_TRAY_APP)
+    # Windows tray app (WIN32 subsystem — no console window)
+    add_executable(octaneServGrpc WIN32
+        ${SERV_SOURCES}
+        src/OctaneServGrpc.rc
+    )
+    target_compile_definitions(octaneServGrpc PRIVATE SERV_WIN32_APP)
+elseif(WIN32)
+    # Windows console app (for debugging: cmake -DSERV_TRAY_APP=OFF ..)
     add_executable(octaneServGrpc
         ${SERV_SOURCES}
         src/OctaneServGrpc.rc

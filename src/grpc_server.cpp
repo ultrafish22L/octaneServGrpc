@@ -2311,7 +2311,7 @@ GrpcServer::~GrpcServer() {
 }
 
 void GrpcServer::RunServer() {
-    std::string serverAddress = "0.0.0.0:" + std::to_string(mPort);
+    std::string serverAddress = "127.0.0.1:" + std::to_string(mPort);
 
     // Create all service implementations
     InfoServiceImpl               infoService;
