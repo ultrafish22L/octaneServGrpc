@@ -856,6 +856,11 @@ public:
                             continue;
                         }
                         size_t bufSize = static_cast<size_t>(img.mPitch) * img.mSize.y * bytesPerPixel;
+                        if (bufSize > UINT32_MAX) {
+                            std::cerr << "[grabRenderResult] Image " << i << " buffer too large ("
+                                      << bufSize << " bytes) — skipping" << std::endl;
+                            continue;
+                        }
                         auto* buf = protoImg->mutable_buffer();
                         buf->set_data(img.mBuffer, bufSize);
                         buf->set_size(static_cast<uint32_t>(bufSize));
@@ -1841,6 +1846,11 @@ public:
             if (!node) return status;
 
             uint32_t pinIx = request->pinix();
+            if (pinIx >= node->pinCount()) {
+                std::ostringstream oss;
+                oss << "pin index " << pinIx << " out of range (pinCount is " << node->pinCount() << ")";
+                return failInvalidArg(SVC, __func__, oss.str());
+            }
             Octane::ApiNode* connected = node->connectedNodeIx(pinIx, request->enterwrappernode());
             if (connected) {
                 uint64_t handle = sHandleRegistry->Register(connected);
@@ -1858,7 +1868,13 @@ public:
             auto* node = requireNode(request->objectptr().handle(), SVC, __func__, status);
             if (!node) return status;
 
-            Octane::ApiItem* owned = node->ownedItemIx(request->pinix());
+            uint32_t pinIx = request->pinix();
+            if (pinIx >= node->pinCount()) {
+                std::ostringstream oss;
+                oss << "pin index " << pinIx << " out of range (pinCount is " << node->pinCount() << ")";
+                return failInvalidArg(SVC, __func__, oss.str());
+            }
+            Octane::ApiItem* owned = node->ownedItemIx(pinIx);
             if (owned) {
                 uint64_t handle = sHandleRegistry->Register(owned);
                 response->mutable_result()->set_handle(handle);

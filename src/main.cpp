@@ -64,8 +64,12 @@ static OctaneServ::GrpcServer* gServer = nullptr;
 //--------------------------------------------------------------------------------
 
 #define MAX_LOADSTRING 100
-#define IDR_AUTH_MANAGEMENT 1001
-#define IDR_EXIT 1002
+#define IDR_LOG_WINDOW     1003
+#define IDR_PREFERENCES    1004
+#define IDR_DEVICE_SETTINGS 1005
+#define IDR_MAIN_WINDOW    1007
+#define IDR_AUTH            1008
+#define IDR_EXIT           1002
 
 // Global Variables
 static HWND            hWnd;
@@ -193,7 +197,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         case IDM_EXIT:
             DestroyWindow(hWnd);
             break;
-        case IDR_AUTH_MANAGEMENT:
+        case IDR_LOG_WINDOW:
+            OctaneServ::SdkEngine::OpenLogWindow();
+            break;
+        case IDR_MAIN_WINDOW:
+            OctaneServ::SdkEngine::OpenMainWindow();
+            break;
+        case IDR_DEVICE_SETTINGS:
+            OctaneServ::SdkEngine::OpenDeviceSettings();
+            break;
+        case IDR_PREFERENCES:
+            OctaneServ::SdkEngine::OpenPreferences();
+            break;
+        case IDR_AUTH:
             OctaneServ::SdkEngine::OpenAuthWindow();
             break;
         case IDR_EXIT:
@@ -213,9 +229,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         PostQuitMessage(0);
         break;
     case WM_APP + 100:
-        if (lParam == WM_LBUTTONUP) {
-            OctaneServ::SdkEngine::OpenAuthWindow();
-        } else if (lParam == WM_RBUTTONUP) {
+        if (lParam == WM_RBUTTONUP) {
             SetForegroundWindow(hWnd);
             ShowPopupMenu(hWnd, NULL, -1);
             PostMessage(hWnd, WM_APP + 1, 0, 0);
@@ -273,8 +287,14 @@ void UpdateTaskBarInfo(bool init) {
 //--------------------------------------------------------------------------------
 BOOL ShowPopupMenu(HWND hWnd, POINT* curpos, int wDefaultItem) {
     HMENU hPop = CreatePopupMenu();
-    InsertMenu(hPop, 0, MF_BYPOSITION | MF_STRING, IDR_AUTH_MANAGEMENT, "Activation");
-    InsertMenu(hPop, 1, MF_BYPOSITION | MF_STRING, IDR_EXIT, "Exit");
+    InsertMenu(hPop, 0, MF_BYPOSITION | MF_STRING, IDR_LOG_WINDOW,     "Log Window");
+    InsertMenu(hPop, 1, MF_BYPOSITION | MF_STRING, IDR_MAIN_WINDOW,    "Octane Standalone");
+    InsertMenu(hPop, 2, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+    InsertMenu(hPop, 3, MF_BYPOSITION | MF_STRING, IDR_DEVICE_SETTINGS, "Device Settings");
+    InsertMenu(hPop, 4, MF_BYPOSITION | MF_STRING, IDR_PREFERENCES,    "Preferences");
+    InsertMenu(hPop, 5, MF_BYPOSITION | MF_STRING, IDR_AUTH,           "Activation");
+    InsertMenu(hPop, 6, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+    InsertMenu(hPop, 7, MF_BYPOSITION | MF_STRING, IDR_EXIT,           "Exit");
     SetFocus(hWnd);
     SendMessage(hWnd, WM_INITMENUPOPUP, (WPARAM)hPop, 0);
     POINT pt;

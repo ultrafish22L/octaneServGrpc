@@ -32,6 +32,19 @@ public:
     /// Open the Octane authentication/license management window.
     static void OpenAuthWindow();
 
+    /// Open the Octane log window.
+    static void OpenLogWindow();
+
+    /// Open Octane preferences dialog.
+    static void OpenPreferences();
+
+    /// Open GPU device settings dialog.
+    static void OpenDeviceSettings();
+
+    /// Open the full Octane Standalone main window.
+
+    static void OpenMainWindow();
+
     /// Check if license is activated.
     static bool IsActivated();
 

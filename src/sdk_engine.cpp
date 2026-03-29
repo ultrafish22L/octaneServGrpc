@@ -4,6 +4,7 @@
 #include "sdk_engine.h"
 #include "SERVKEY.h"
 #include "octaneapi.h"
+#include "octanegui/apimainwindow.h"
 #include "util/callback_dispatcher.h"
 #include "util/server_log.h"
 
@@ -130,12 +131,36 @@ std::string SdkEngine::GetName() {
 }
 
 void SdkEngine::OpenAuthWindow() {
-    // apiMode_openAuthManagementDlg() opens the licensing dialog
 #ifndef OCTANE_DEMO_VERSION
     if (Octane::apiMode_Shared_isStarted()) {
         Octane::apiMode_openAuthManagementDlg();
     }
 #endif
+}
+
+void SdkEngine::OpenLogWindow() {
+    if (Octane::apiMode_Shared_isStarted()) {
+        Octane::ApiLogManager::openOctaneLogWindow();
+    }
+}
+
+void SdkEngine::OpenPreferences() {
+    if (Octane::apiMode_Shared_isStarted()) {
+        Octane::ApiNetRenderManager::openOctanePreferences();
+    }
+}
+
+void SdkEngine::OpenDeviceSettings() {
+    if (Octane::apiMode_Shared_isStarted()) {
+        Octane::ApiRenderEngine::openDeviceSettings();
+    }
+}
+
+void SdkEngine::OpenMainWindow() {
+    if (Octane::apiMode_Shared_isStarted()) {
+        auto* mainWin = Octane::ApiMainWindow::fetchOrCreateInstance();
+        if (mainWin) mainWin->show();
+    }
 }
 
 bool SdkEngine::IsActivated() {

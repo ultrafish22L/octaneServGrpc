@@ -36,5 +36,4 @@ Log patterns — success: `REQ...RES 0ms`, unimplemented: `ERR code=12`, not fou
 
 ## Known Limitations
 
-- Handle staling not validated (stale pointers possible) — see `docs/PLAN.md` §3
-- In-memory registry only (lost on restart)
+- In-memory registry only (lost on restart). Handle staling validated since v1.1.0 (auto-evicts on `uniqueId == 0`).

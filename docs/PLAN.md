@@ -12,7 +12,14 @@ Goals:
 
 ---
 
-## §2 Hardening
+## §2 Hardening — ✅ COMPLETED (v2.4.0–v2.4.4)
+
+> All items in §2 are implemented. See CHANGELOG.md for details.
+> - 1A–1B: GRPC_SAFE macro + requireItem/requireNode/requireGraph/requireArray (v2.4.0, 98/98 methods)
+> - 1C: Input bounds checks — device index, array bounds, buffer overflow, pin index (v2.4.0–v2.4.4)
+> - 1D: SDK readiness checked at startup
+> - 1E: Descriptive error messages on every failure path
+> - 1F: SEH exception handling via `/EHa` (v2.4.0)
 
 ### 1A. Global exception boundary around every RPC
 
@@ -121,45 +128,30 @@ Apply to every service method that takes an ObjectRef. The `isGraph`/`isNode` re
 
 ---
 
-## §3 Simplify State
+## §3 Simplify State — ✅ 2A COMPLETED, 2B OPEN
 
-### 2A. Keep HandleRegistry but make it lean and validated
+### 2A. HandleRegistry — ✅ COMPLETED (v1.1.0)
 
-**Finding**: SDK has NO `findByUniqueId()`. You can go pointer→uniqueId but not reverse. So we **must** keep a map. But we can harden it significantly.
+Implemented as designed: validated thin map with auto-eviction on `uniqueId == 0`. See `src/util/handle_registry.h`.
 
-**Current problems**:
-- Stale pointers if items destroyed outside our control
-- No validation that a cached pointer is still alive
-- Map grows unbounded
-
-**New design** — validated thin map:
-- Handle = `ApiItem::uniqueId()` (unchanged, this is good)
-- On every lookup: validate the pointer is still alive by checking `item->uniqueId() != 0` (SDK says zero = invalid)
-- If stale (uniqueId == 0), auto-evict from map and return NOT_FOUND
-- Add `size()` logging to health endpoint so we can monitor growth
-- `Clear()` on loadProject/resetProject stays (good hygiene)
-- Consider periodic sweep (every N lookups) to evict dead entries
-
-**What stays**: `mHandles` map, Register/Lookup/Unregister, Clear
-**What changes**: Lookup adds staleness validation, auto-eviction on stale hit
-
-**Files**: `src/util/handle_registry.h`, `src/util/handle_registry.cpp`
-
-### 2B. Short-lived arrays
+### 2B. Short-lived arrays — OPEN
 
 **Problem**: `ApiItemArray*` objects are heap-allocated in `getOwnedItems()` but never freed unless the client explicitly calls something that triggers `Clear()`. They accumulate.
 
 **Fix**: Arrays should be ephemeral. Two options:
-- **Option A**: Return array contents inline in the response (repeated ObjectRef). No array handle needed. Client gets all items in one call.
+- **Option A**: Return array contents inline in the response (repeated ObjectRef). No array handle needed.
 - **Option B**: Keep array handles but add a TTL / auto-cleanup. After 60s with no access, delete.
 
-**Recommendation**: Option A for `getOwnedItems` — return the items directly. The proto already supports this pattern. Eliminates array leak entirely. If we need arrays for other things, use Option B with TTL.
+**Recommendation**: Option A for `getOwnedItems`. Eliminates array leak entirely.
 
 **Files**: `src/grpc_server.cpp`, `src/util/handle_registry.h`
 
 ---
 
-## §4 Callbacks
+## §4 Callbacks — ✅ COMPLETED (v1.0.0–v1.1.0)
+
+> Callbacks fully implemented: render image streaming (buffer + DX11 shared surface),
+> statistics, render failure, project change notifications. See CHANGELOG.md v1.1.0.
 
 ### 3A. Wire StreamCallbackService to SDK callbacks
 
@@ -266,7 +258,9 @@ The `callback.proto` defines `ChangeManagerObserver` with `ChangeEvent` (ITEM_AD
 
 ---
 
-## §5 API Surface
+## §5 API Surface — ✅ COMPLETED (v1.1.0)
+
+> ApiNodeService and ApiItemService fully implemented. See CHANGELOG.md v1.1.0.
 
 ### 4A. ApiNodeService — Scene Building
 
@@ -349,18 +343,18 @@ All methods must: validate inputs, catch SDK exceptions, return proper gRPC erro
 
 ## §7 Implementation Order
 
-| Phase | What | Priority |
-|-------|------|----------|
-| **1** | Hardening: GRPC_SAFE macro, handle validation, input validation, SDK guard | P0 |
-| **2** | Simplify: Validate cached pointers, short-lived arrays | P0 |
-| **3** | Callbacks: Wire StreamCallbackService, render image buffer path | P0 |
-| **4** | DX11 Shared Surface: setSharedSurfaceOutputType, zero-copy path | P0 |
-| **5** | ApiNodeService: create, connect, setPinValue | P0 |
-| **6** | ApiItemService: getByAttrID, setByAttrID, connectedNode | P0 |
-| **7** | Statistics/Failure/ChangeManager callbacks | P1 |
-| **8** | Health endpoint, metrics, pick intersection | P1 |
-| **9** | Multi-client, rate limiting, render pass routing | P2 |
-| **10** | Fuzzing test suite | P2 |
+| Phase | What | Status |
+|-------|------|--------|
+| **1** | Hardening: GRPC_SAFE macro, handle validation, input validation, SDK guard | ✅ v2.4.0–v2.4.4 |
+| **2** | Simplify: Validate cached pointers, short-lived arrays | ✅ 2A done, 2B open |
+| **3** | Callbacks: Wire StreamCallbackService, render image buffer path | ✅ v1.1.0 |
+| **4** | DX11 Shared Surface: setSharedSurfaceOutputType, zero-copy path | ✅ v1.1.0 |
+| **5** | ApiNodeService: create, connect, setPinValue | ✅ v1.1.0 |
+| **6** | ApiItemService: getByAttrID, setByAttrID, connectedNode | ✅ v1.1.0 |
+| **7** | Statistics/Failure/ChangeManager callbacks | ✅ v1.1.0 |
+| **8** | Health endpoint, metrics, pick intersection | Open |
+| **9** | Multi-client, rate limiting, render pass routing | Open |
+| **10** | Fuzzing test suite | Open |
 
 ---
 

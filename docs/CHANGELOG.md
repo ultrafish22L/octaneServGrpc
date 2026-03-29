@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.4.4 — 2026-03-29
+
+- Robustness: `bufSize > UINT32_MAX` guard in `grabRenderResult` — skips images too large for protobuf uint32 size field
+- Robustness: pin index bounds checks on `connectedNodeIx` and `ownedItemIx` — matches existing `pinTypeIx`/`pinNameIx` pattern
+- `AppThread` uses `std::unique_ptr<std::thread>` — no manual delete, exception-safe
+- Updated `PLAN.md` — marked §2–§5 as completed, reflects current implementation status
+
 ## v2.4.3 — 2026-03-29
 
 - Version bump to sync with octaneWebR v2.4.3 (no server-side changes)
