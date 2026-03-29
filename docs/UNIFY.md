@@ -263,7 +263,7 @@ These are thin wrappers around single gRPC calls. Each tool handler constructs a
 | `save_render_passes` | Needs AOV enumeration + multi-file save logic |
 | `save_render_passes_exr` | Multi-layer EXR assembly |
 | `get_enabled_aovs` | Render pass iteration |
-| `import_glb` | Needs GLB→OBJ conversion (trimesh or assimp) |
+| `import_geo` | Accepts .obj/.glb/.gltf — OBJ direct, GLB/glTF via trimesh |
 
 ### Tier 3 — Stay in octaneWebR (Not Ported)
 

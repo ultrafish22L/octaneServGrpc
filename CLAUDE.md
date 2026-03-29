@@ -15,8 +15,7 @@
 
 ### Pending
 
-1. `docs/PLAN.md` §3 — Handle staling validation (uniqueId == 0 check)
-2. `docs/UNIFY.md` — Native MCP server (eliminate octaneWebR dependency)
+1. `docs/UNIFY.md` — Native MCP server (eliminate octaneWebR dependency)
 
 **ALL temp files -> `temp/`**
 

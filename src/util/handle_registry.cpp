@@ -74,4 +74,9 @@ size_t HandleRegistry::ArrayCount() const {
     return mArrays.size();
 }
 
+uint64_t HandleRegistry::StaleEvictions() const {
+    std::lock_guard<std::mutex> lock(mMutex);
+    return mStaleEvictions;
+}
+
 } // namespace OctaneServ

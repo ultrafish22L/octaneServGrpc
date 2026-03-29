@@ -209,7 +209,12 @@ static Octane::ApiItemArray* requireArray(uint64_t handle, const char* svc,
 // Prevents "handle not found" errors when the client calls attrInfo
 // on auto-created pin children without first calling connectedNodeIx.
 static void registerPinChildrenRecursive(Octane::ApiNode* node, int depth = 0) {
-    if (!node || depth > 10) return; // guard against infinite recursion
+    if (!node) return;
+    if (depth > 22) {
+        ServerLog::instance().log("WRN", "HandleReg", "registerPinChildren",
+            "depth limit 22 reached — deeper pin children will not be auto-registered");
+        return;
+    }
     for (uint32_t i = 0; i < node->pinCount(); ++i) {
         Octane::ApiNode* child = node->connectedNodeIx(i, false);
         if (child) {
@@ -998,7 +1003,7 @@ public:
 // LiveLinkService
 // ═══════════════════════════════════════════════════════════════════════════
 // Build number — increment on every code change to verify running code matches build.
-static constexpr int SERV_BUILD = 4;
+static constexpr int SERV_BUILD = 5;
 
 class LiveLinkServiceImpl final : public livelinkapi::LiveLinkService::Service {
     static constexpr const char* SVC = "LiveLinkService";
@@ -1006,6 +1011,8 @@ public:
     grpc::Status GetServVersion(grpc::ServerContext*, const livelinkapi::Empty*,
         livelinkapi::ServVersionResponse* response) override {
         response->set_build(SERV_BUILD);
+        response->set_handle_count(sHandleRegistry->Size());
+        response->set_stale_evictions(sHandleRegistry->StaleEvictions());
         return grpc::Status::OK;
     }
 
@@ -1284,69 +1291,69 @@ public:
             const Octane::ApiAttributeInfo& info = item->attrInfo(attrId);
             switch (info.mType) {
                 case Octane::AT_BOOL: {
-                    bool v; item->get(attrId, v);
+                    bool v = false; item->get(attrId, v);
                     response->set_bool_value(v);
                     break;
                 }
                 case Octane::AT_INT: {
-                    int32_t v; item->get(attrId, v);
+                    int32_t v = 0; item->get(attrId, v);
                     response->set_int_value(v);
                     break;
                 }
                 case Octane::AT_INT2: {
-                    Octane::int32_2 v; item->get(attrId, v);
+                    Octane::int32_2 v = {0, 0}; item->get(attrId, v);
                     auto* r = response->mutable_int2_value();
                     r->set_x(v.x); r->set_y(v.y);
                     break;
                 }
                 case Octane::AT_INT3: {
-                    Octane::int32_3 v; item->get(attrId, v);
+                    Octane::int32_3 v = {0, 0, 0}; item->get(attrId, v);
                     auto* r = response->mutable_int3_value();
                     r->set_x(v.x); r->set_y(v.y); r->set_z(v.z);
                     break;
                 }
                 case Octane::AT_INT4: {
-                    Octane::int32_4 v; item->get(attrId, v);
+                    Octane::int32_4 v = {0, 0, 0, 0}; item->get(attrId, v);
                     auto* r = response->mutable_int4_value();
                     r->set_x(v.x); r->set_y(v.y); r->set_z(v.z); r->set_w(v.w);
                     break;
                 }
                 case Octane::AT_LONG: {
-                    int64_t v; item->get(attrId, v);
+                    int64_t v = 0; item->get(attrId, v);
                     response->set_long_value(v);
                     break;
                 }
                 case Octane::AT_LONG2: {
-                    Octane::int64_2 v; item->get(attrId, v);
+                    Octane::int64_2 v = {0, 0}; item->get(attrId, v);
                     auto* r = response->mutable_long2_value();
                     r->set_x(v.x); r->set_y(v.y);
                     break;
                 }
                 case Octane::AT_FLOAT: {
-                    float v; item->get(attrId, v);
+                    float v = 0.f; item->get(attrId, v);
                     response->set_float_value(v);
                     break;
                 }
                 case Octane::AT_FLOAT2: {
-                    Octane::float_2 v; item->get(attrId, v);
+                    Octane::float_2 v = {0.f, 0.f}; item->get(attrId, v);
                     auto* r = response->mutable_float2_value();
                     r->set_x(v.x); r->set_y(v.y);
                     break;
                 }
                 case Octane::AT_FLOAT3: {
-                    Octane::float_3 v; item->get(attrId, v);
+                    Octane::float_3 v = {0.f, 0.f, 0.f}; item->get(attrId, v);
                     auto* r = response->mutable_float3_value();
                     r->set_x(v.x); r->set_y(v.y); r->set_z(v.z);
                     break;
                 }
                 case Octane::AT_FLOAT4: {
-                    Octane::float_4 v; item->get(attrId, v);
+                    Octane::float_4 v = Octane::float_4::make(0.f, 0.f, 0.f, 0.f); item->get(attrId, v);
                     auto* r = response->mutable_float4_value();
                     r->set_x((float)v.x); r->set_y((float)v.y); r->set_z((float)v.z); r->set_w((float)v.w);
                     break;
                 }
                 case Octane::AT_MATRIX: {
-                    Octane::MatrixF v; item->get(attrId, v);
+                    Octane::MatrixF v = Octane::MatrixF::zero(); item->get(attrId, v);
                     auto* r = response->mutable_matrix_value();
                     // SDK MatrixF: Vec4<float> m[3] (3 rows of Vec4)
                     for (int row = 0; row < 3; ++row) {

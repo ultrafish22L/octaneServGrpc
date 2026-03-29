@@ -51,6 +51,7 @@ public:
     /// Get counts for diagnostics.
     size_t ItemCount() const;
     size_t ArrayCount() const;
+    uint64_t StaleEvictions() const;
 
 private:
     mutable std::mutex mMutex;
