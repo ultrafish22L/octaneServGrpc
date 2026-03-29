@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.4.3 — 2026-03-29
+
+- Version bump to sync with octaneWebR v2.4.3 (no server-side changes)
+
 ## v2.4.1 — 2026-03-27
 
 - Robustness: mPitch zero-guard in `grabRenderResult` — skips images with zero pitch instead of sending empty buffer
