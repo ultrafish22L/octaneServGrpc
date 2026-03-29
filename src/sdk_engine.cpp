@@ -11,9 +11,25 @@
 #include <iostream>
 #include <vector>
 #include <cstring>
+#include <cstdio>
 
 // The plugin type identifier — must match the plugin key names
 #define PLUGIN_TYPE "PLORTEST"
+
+// Register 'grpc' log flag with the Octane log system.
+// This runs at static init; the flag starts disabled until we call setFlag().
+API_RLOG_DECLARE(grpc, "grpc", "gRPC server operations")
+
+// Callback that forwards ServerLog lines to the Octane log window
+static void octaneLogSink(const char* prefix, const char* service, const char* method, const char* detail) {
+    char buf[1024];
+    if (detail && detail[0]) {
+        std::snprintf(buf, sizeof(buf), "%s %s.%s %s", prefix, service, method, detail);
+    } else {
+        std::snprintf(buf, sizeof(buf), "%s %s.%s", prefix, service, method);
+    }
+    API_RLOG(grpc, "%s", buf);
+}
 
 // HMAC-SHA256 implementation for plugin authentication
 // Minimal HMAC-SHA256 using Windows CNG (Cryptography Next Generation)
@@ -107,6 +123,13 @@ bool SdkEngine::Init(const char* pluginType, bool runDispatchLoop) {
         // Continue anyway — demo mode may still work
     }
 
+    // Enable the 'grpc' log flag and wire up the Octane log sink
+    Octane::ApiLogManager::setFlag("grpc", 1);
+    ServerLog::instance().setExternalSink(octaneLogSink);
+
+    API_RLOG(grpc, "SDK initialized. Version: %d (%s)",
+        Octane::ApiInfo::octaneVersion(), Octane::ApiInfo::octaneName());
+
     std::cout << "[OctaneServGrpc] Octane SDK initialized. Version: " << Octane::ApiInfo::octaneVersion()
               << " (" << Octane::ApiInfo::octaneName() << ")" << std::endl;
 
@@ -114,6 +137,8 @@ bool SdkEngine::Init(const char* pluginType, bool runDispatchLoop) {
 }
 
 bool SdkEngine::Exit() {
+    API_RLOG(grpc, "SDK shutting down");
+    ServerLog::instance().setExternalSink(nullptr); // disconnect before SDK exits
     return Octane::apiMode_Shared_exit(nullptr);
 }
 

@@ -33,10 +33,16 @@ enum class LogLevel { Verbose, Debug, Info, Warn, Off };
 
 class ServerLog {
 public:
+    /// Callback type for forwarding log lines to an external system (e.g. Octane log window)
+    using ExternalLogFunc = void(*)(const char* prefix, const char* service, const char* method, const char* detail);
+
     static ServerLog& instance() {
         static ServerLog s;
         return s;
     }
+
+    /// Set an external log sink (called for every line that passes level filtering)
+    void setExternalSink(ExternalLogFunc func) { mExternalSink = func; }
 
     void init(const std::string& exePath, LogLevel level = LogLevel::Debug) {
         std::lock_guard<std::mutex> lock(mMutex);
@@ -71,20 +77,27 @@ public:
             !sMutatingMethods.count(method) && !sDebugMethods.count(method)) return;
         // Verbose: log everything
 
-        std::lock_guard<std::mutex> lock(mMutex);
-        if (!mFile.is_open()) return;
-
-        std::string ts = timestamp();
-        mFile << "[" << ts << "]  " << prefix << " " << service << "." << method;
-        if (!detail.empty()) {
-            // Truncate at 800 chars like client
-            if (detail.size() > 800)
-                mFile << " " << detail.substr(0, 800) << "...";
-            else
-                mFile << " " << detail;
+        {
+            std::lock_guard<std::mutex> lock(mMutex);
+            if (mFile.is_open()) {
+                std::string ts = timestamp();
+                mFile << "[" << ts << "]  " << prefix << " " << service << "." << method;
+                if (!detail.empty()) {
+                    if (detail.size() > 800)
+                        mFile << " " << detail.substr(0, 800) << "...";
+                    else
+                        mFile << " " << detail;
+                }
+                mFile << "\n";
+                mFile.flush();
+            }
         }
-        mFile << "\n";
-        mFile.flush(); // Flush every line for real-time tailing
+
+        // Forward to external sink (Octane log window) outside the file lock
+        auto sink = mExternalSink;
+        if (sink) {
+            sink(prefix, service.c_str(), method.c_str(), detail.c_str());
+        }
     }
 
     void req(const std::string& service, const std::string& method, const std::string& detail = "") {
@@ -140,6 +153,7 @@ private:
     std::mutex mMutex;
     std::ofstream mFile;
     LogLevel mLevel = LogLevel::Debug;
+    ExternalLogFunc mExternalSink = nullptr;
 
     // Mirror the client's method sets for consistent filtering
     static const std::unordered_set<std::string> sMutatingMethods;

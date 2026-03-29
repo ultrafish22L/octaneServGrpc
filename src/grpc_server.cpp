@@ -23,6 +23,9 @@
 #include "util/logging_interceptor.h"
 #include "util/callback_dispatcher.h"
 
+#include "apilogmanager.h"
+API_RLOG_USE(grpc)
+
 // Octane SDK
 #include "octaneapi.h"
 
@@ -2387,6 +2390,7 @@ void GrpcServer::RunServer() {
     }
 
     mRunning = true;
+    API_RLOG(grpc, "gRPC server listening on %s", serverAddress.c_str());
     std::cout << "[OctaneServGrpc] gRPC server listening on " << serverAddress << std::endl;
     std::cout << "[OctaneServGrpc] Services: ApiInfo, ProjectManager, ChangeManager, RenderEngine, LiveLink, StreamCallback, Item, ItemArray, Node, NodeGraph" << std::endl;
     std::cout << "[OctaneServGrpc] Hardening: GRPC_SAFE on all RPCs, validated lookups, input bounds, SEH protection" << std::endl;
@@ -2395,6 +2399,7 @@ void GrpcServer::RunServer() {
     mServer->Wait();
     mRunning = false;
 
+    API_RLOG(grpc, "gRPC server stopped");
     std::cout << "[OctaneServGrpc] gRPC server stopped." << std::endl;
 }
 
