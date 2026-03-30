@@ -148,6 +148,17 @@ public:
     LogLevel level() const { return mLevel; }
     const std::string& logPath() const { return mLogPath; }
 
+    std::string levelName() const {
+        switch (mLevel) {
+            case LogLevel::Verbose: return "verbose";
+            case LogLevel::Debug:   return "debug";
+            case LogLevel::Info:    return "info";
+            case LogLevel::Warn:    return "warn";
+            case LogLevel::Off:     return "off";
+        }
+        return "unknown";
+    }
+
     static LogLevel parseLevel(const std::string& s) {
         if (s == "verbose") return LogLevel::Verbose;
         if (s == "debug")   return LogLevel::Debug;
@@ -173,17 +184,6 @@ private:
         std::ostringstream oss;
         oss << std::put_time(&tm, "%H:%M:%S") << "." << std::setfill('0') << std::setw(3) << ms.count();
         return oss.str();
-    }
-
-    std::string levelName() {
-        switch (mLevel) {
-            case LogLevel::Verbose: return "verbose";
-            case LogLevel::Debug:   return "debug";
-            case LogLevel::Info:    return "info";
-            case LogLevel::Warn:    return "warn";
-            case LogLevel::Off:     return "off";
-        }
-        return "unknown";
     }
 
     std::mutex mMutex;

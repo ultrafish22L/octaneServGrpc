@@ -36,15 +36,16 @@ void HandleRegistry::Unregister(uint64_t handle) {
 uint64_t HandleRegistry::RegisterArray(Octane::ApiItemArray* arr) {
     if (!arr) return 0;
     std::lock_guard<std::mutex> lock(mMutex);
+    purgeStaleArrays(); // clean up old arrays on each registration
     uint64_t handle = mNextArrayHandle++;
-    mArrays[handle] = std::unique_ptr<Octane::ApiItemArray>(arr);
+    mArrays[handle] = { std::unique_ptr<Octane::ApiItemArray>(arr), std::chrono::steady_clock::now() };
     return handle;
 }
 
 Octane::ApiItemArray* HandleRegistry::LookupArray(uint64_t handle) {
     std::lock_guard<std::mutex> lock(mMutex);
     auto it = mArrays.find(handle);
-    return (it != mArrays.end()) ? it->second.get() : nullptr;
+    return (it != mArrays.end()) ? it->second.array.get() : nullptr;
 }
 
 void HandleRegistry::UnregisterArray(uint64_t handle) {
@@ -77,6 +78,19 @@ size_t HandleRegistry::ArrayCount() const {
 uint64_t HandleRegistry::StaleEvictions() const {
     std::lock_guard<std::mutex> lock(mMutex);
     return mStaleEvictions;
+}
+
+// Purge arrays older than ARRAY_TTL_SECONDS. Called under mMutex.
+void HandleRegistry::purgeStaleArrays() {
+    auto now = std::chrono::steady_clock::now();
+    auto ttl = std::chrono::seconds(ARRAY_TTL_SECONDS);
+    for (auto it = mArrays.begin(); it != mArrays.end(); ) {
+        if (now - it->second.created > ttl) {
+            it = mArrays.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 } // namespace OctaneServ

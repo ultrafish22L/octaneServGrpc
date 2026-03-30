@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <memory>
 #include <mutex>
+#include <chrono>
 
 namespace Octane { class ApiItem; class ApiItemArray; }
 
@@ -33,6 +34,7 @@ public:
 
     /// Register a heap-allocated ApiItemArray and return its handle.
     /// Registry takes ownership and will delete it on Clear/Unregister.
+    /// Purges arrays older than ARRAY_TTL_SECONDS on each registration.
     uint64_t RegisterArray(Octane::ApiItemArray* arr);
 
     /// Look up an ApiItemArray by handle. Returns nullptr if not found.
@@ -56,12 +58,23 @@ public:
 private:
     mutable std::mutex mMutex;
     std::unordered_map<uint64_t, Octane::ApiItem*> mHandles;
-    std::unordered_map<uint64_t, std::unique_ptr<Octane::ApiItemArray>> mArrays;
+
+    // Array entry with creation timestamp for TTL-based cleanup
+    struct ArrayEntry {
+        std::unique_ptr<Octane::ApiItemArray> array;
+        std::chrono::steady_clock::time_point created;
+    };
+    std::unordered_map<uint64_t, ArrayEntry> mArrays;
+
     // Array handles must stay within JS Number.MAX_SAFE_INTEGER (2^53 - 1)
     // to avoid precision loss when round-tripping through JSON/protobuf-js.
     // Use 2^52 as the base — well above any realistic SDK uniqueId.
     uint64_t mNextArrayHandle = 0x0010000000000000ULL; // 2^52, JS-safe
     uint64_t mStaleEvictions = 0; // Counter for diagnostics
+
+    // Arrays older than this are purged on the next RegisterArray() call.
+    static constexpr int ARRAY_TTL_SECONDS = 60;
+    void purgeStaleArrays(); // called under mMutex
 };
 
 } // namespace OctaneServ

@@ -56,6 +56,11 @@ namespace OctaneServ {
 // Shared handle registry — all services access the same instance
 static HandleRegistry* sHandleRegistry = nullptr;
 
+// Maximum recursion depth for auto-registering pin children.
+// Octane's deepest auto-created pin trees are ~8 deep (RT→kernel→settings);
+// 22 gives 3x headroom to avoid silent truncation.
+static constexpr int MAX_PIN_TREE_DEPTH = 22;
+
 // Pin info handles: encode node uniqueId + pin index into a single uint64.
 // High 48 bits = node handle, low 16 bits = pin index. No cache needed —
 // decode at lookup time, get pin info from live SDK node.
@@ -200,11 +205,9 @@ static Octane::ApiItemArray* requireArray(uint64_t handle, const char* svc,
 // on auto-created pin children without first calling connectedNodeIx.
 static void registerPinChildrenRecursive(Octane::ApiNode* node, int depth = 0) {
     if (!node) return;
-    // 22 = generous max for Octane's deepest auto-created pin trees
-    // (RT→kernel→settings is ~8 deep; 22 gives 3x headroom)
-    if (depth > 22) {
+    if (depth > MAX_PIN_TREE_DEPTH) {
         ServerLog::instance().log("WRN", "HandleReg", "registerPinChildren",
-            "depth limit 22 reached — deeper pin children will not be auto-registered");
+            "depth limit " + std::to_string(MAX_PIN_TREE_DEPTH) + " reached — deeper pin children will not be auto-registered");
         return;
     }
     for (uint32_t i = 0; i < node->pinCount(); ++i) {
@@ -573,7 +576,14 @@ public:
     grpc::Status setSubSampleMode(grpc::ServerContext*, const octaneapi::ApiRenderEngine::setSubSampleModeRequest* request,
         google::protobuf::Empty*) override {
         GRPC_SAFE_BEGIN(SVC)
-            Octane::ApiRenderEngine::setSubSampleMode(static_cast<Octane::SubSampleMode>(request->mode()));
+            int mode = request->mode();
+            // SubSampleMode: 0=none, 1=2x2, 2=4x4, 3=8x8
+            if (mode < 0 || mode > 3) {
+                std::ostringstream oss;
+                oss << "sub-sample mode " << mode << " is not valid (valid: 0=none, 1=2x2, 2=4x4, 3=8x8)";
+                return failInvalidArg(SVC, __func__, oss.str());
+            }
+            Octane::ApiRenderEngine::setSubSampleMode(static_cast<Octane::SubSampleMode>(mode));
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -612,6 +622,11 @@ public:
             auto* node = requireNode(handle, SVC, __func__, status);
             if (!node) return status;
             bool result = Octane::ApiRenderEngine::setRenderTargetNode(node);
+            if (!result) {
+                ServerLog::instance().err(SVC, __func__,
+                    "setRenderTargetNode failed for handle " + std::to_string(handle)
+                    + " — node may not be a valid render target (must be NT_RENDERTARGET)");
+            }
             response->set_result(result);
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
@@ -637,6 +652,8 @@ public:
     grpc::Status continueRendering(grpc::ServerContext*, const octaneapi::ApiRenderEngine::continueRenderingRequest*,
         google::protobuf::Empty*) override {
         GRPC_SAFE_BEGIN(SVC)
+            auto status = validateRenderReady("continueRendering");
+            if (!status.ok()) return status;
             Octane::ApiRenderEngine::continueRendering();
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
@@ -644,6 +661,8 @@ public:
     grpc::Status restartRendering(grpc::ServerContext*, const octaneapi::ApiRenderEngine::restartRenderingRequest*,
         google::protobuf::Empty*) override {
         GRPC_SAFE_BEGIN(SVC)
+            auto status = validateRenderReady("restartRendering");
+            if (!status.ok()) return status;
             Octane::ApiRenderEngine::restartRendering();
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
@@ -654,6 +673,33 @@ public:
             Octane::ApiRenderEngine::pauseRendering();
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
+    }
+
+private:
+    // Pre-render validation: check that the scene is renderable before
+    // starting/restarting/continuing. Returns OK if ready, or FAILED_PRECONDITION
+    // with a diagnostic message listing exactly what's missing.
+    static grpc::Status validateRenderReady(const char* method) {
+        Octane::ApiNode* rt = Octane::ApiRenderEngine::getRenderTargetNode();
+        if (!rt) {
+            return failPrecondition(SVC, method,
+                "no render target set — call setRenderTargetNode first");
+        }
+        // Check critical pins: camera (0), geometry (3), kernel (6)
+        std::string missing;
+        if (!rt->connectedNodeIx(0, false))
+            missing += "pin 0 (camera) has no node connected. ";
+        if (!rt->connectedNodeIx(3, false))
+            missing += "pin 3 (geometry/mesh) has no node connected — scene will render all white. ";
+        if (!rt->connectedNodeIx(6, false))
+            missing += "pin 6 (kernel) has no node connected. ";
+
+        if (!missing.empty()) {
+            return failPrecondition(SVC, method,
+                "render target is missing required connections: " + missing
+                + "Use connect_nodes to wire the missing nodes.");
+        }
+        return grpc::Status::OK;
     }
     grpc::Status isRenderingPaused(grpc::ServerContext*, const octaneapi::ApiRenderEngine::isRenderingPausedRequest*,
         octaneapi::ApiRenderEngine::isRenderingPausedResponse* response) override {
@@ -705,6 +751,12 @@ public:
         octaneapi::ApiRenderEngine::deviceSharedSurfaceInfoResponse* response) override {
         GRPC_SAFE_BEGIN(SVC)
             uint32_t idx = request->index();
+            uint32_t count = Octane::ApiRenderEngine::getDeviceCount();
+            if (idx >= count) {
+                std::ostringstream oss;
+                oss << "device index " << idx << " out of range (device count is " << count << ")";
+                return failInvalidArg(SVC, __func__, oss.str());
+            }
             auto info = Octane::ApiRenderEngine::deviceSharedSurfaceInfo(idx);
             auto* result = response->mutable_result();
             auto* d3d11 = result->mutable_d3d11();
@@ -746,25 +798,29 @@ public:
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
+    // ── Callback registration stubs ─────────────────────────────────
+    // SDK callbacks are registered server-side in SdkEngine::RegisterCallbacks().
+    // Clients receive events via StreamCallbackService::callbackChannel().
+    // These RPCs exist for proto compatibility but are no-ops — return a
+    // sentinel callbackId so the client knows registration is server-managed.
     grpc::Status setOnNewImageCallback(grpc::ServerContext*, const octaneapi::ApiRenderEngine::setOnNewImageCallbackRequest*,
         octaneapi::ApiRenderEngine::setOnNewImageCallbackResponse* response) override {
         GRPC_SAFE_BEGIN(SVC)
-            // Callback registration is handled by StreamCallbackService
-            response->set_callbackid(1);
+            response->set_callbackid(1); // server-managed — use callbackChannel()
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
     grpc::Status setOnNewStatisticsCallback(grpc::ServerContext*, const octaneapi::ApiRenderEngine::setOnNewStatisticsCallbackRequest*,
         octaneapi::ApiRenderEngine::setOnNewStatisticsCallbackResponse* response) override {
         GRPC_SAFE_BEGIN(SVC)
-            response->set_callbackid(2);
+            response->set_callbackid(2); // server-managed — use callbackChannel()
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
     grpc::Status setOnRenderFailureCallback(grpc::ServerContext*, const octaneapi::ApiRenderEngine::setOnRenderFailureCallbackRequest*,
         octaneapi::ApiRenderEngine::setOnRenderFailureCallbackResponse* response) override {
         GRPC_SAFE_BEGIN(SVC)
-            response->set_callbackid(3);
+            response->set_callbackid(3); // server-managed — use callbackChannel()
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -832,6 +888,11 @@ public:
             if (exrLevel <= 0.f) exrLevel = 45.f;
             bool result = Octane::ApiRenderEngine::saveImage(
                 passId, request->fullpath().c_str(), fmt, cs, pa, exrComp, exrLevel, request->asynchronous());
+            if (!result) {
+                ServerLog::instance().err(SVC, __func__,
+                    "saveImage returned false for path: " + request->fullpath()
+                    + " — verify path exists, render is active, and passId " + std::to_string(static_cast<int>(passId)) + " is valid");
+            }
             response->set_result(result);
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
@@ -867,15 +928,16 @@ public:
 
                     // Warn if shared surface mode is on but caller used pixel path
                     if (!img.mBuffer && img.mSharedSurface) {
-                        std::cerr << "[grabRenderResult] Image " << i
-                                  << " has shared surface but no pixel buffer — "
-                                  << "client should use grabSharedFrame instead" << std::endl;
+                        ServerLog::instance().log("WRN", SVC, "grabRenderResult",
+                            "image " + std::to_string(i) + " has shared surface but no pixel buffer"
+                            " — client should use grabSharedFrame instead");
                     }
 
                     // Pack pixel buffer
                     if (img.mBuffer && img.mSize.x > 0 && img.mSize.y > 0) {
                         if (img.mPitch == 0) {
-                            std::cerr << "[grabRenderResult] Image " << i << " has zero pitch — skipping" << std::endl;
+                            ServerLog::instance().log("WRN", SVC, "grabRenderResult",
+                                "image " + std::to_string(i) + " has zero pitch — skipping");
                             continue;
                         }
                         // Calculate buffer size based on image type
@@ -887,15 +949,17 @@ public:
                         }
                         // Overflow protection: validate before multiplying
                         if (static_cast<size_t>(img.mPitch) > SIZE_MAX / img.mSize.y / bytesPerPixel) {
-                            std::cerr << "[grabRenderResult] Image " << i << " buffer size overflow ("
-                                      << img.mPitch << "x" << img.mSize.y << "x" << bytesPerPixel
-                                      << ") — skipping" << std::endl;
+                            ServerLog::instance().err(SVC, "grabRenderResult",
+                                "image " + std::to_string(i) + " buffer size overflow ("
+                                + std::to_string(img.mPitch) + "x" + std::to_string(img.mSize.y)
+                                + "x" + std::to_string(bytesPerPixel) + ") — skipping");
                             continue;
                         }
                         size_t bufSize = static_cast<size_t>(img.mPitch) * img.mSize.y * bytesPerPixel;
                         if (bufSize > UINT32_MAX) {
-                            std::cerr << "[grabRenderResult] Image " << i << " buffer too large ("
-                                      << bufSize << " bytes) — skipping" << std::endl;
+                            ServerLog::instance().err(SVC, "grabRenderResult",
+                                "image " + std::to_string(i) + " buffer too large ("
+                                + std::to_string(bufSize) + " bytes) — skipping");
                             continue;
                         }
                         auto* buf = protoImg->mutable_buffer();
@@ -1058,8 +1122,17 @@ public:
     grpc::Status GetServVersion(grpc::ServerContext*, const livelinkapi::Empty*,
         livelinkapi::ServVersionResponse* response) override {
         response->set_build(SERV_BUILD);
+        // Handle registry diagnostics
         response->set_handle_count(sHandleRegistry->Size());
         response->set_stale_evictions(sHandleRegistry->StaleEvictions());
+        response->set_item_count(sHandleRegistry->ItemCount());
+        response->set_array_count(sHandleRegistry->ArrayCount());
+        // SDK health
+        response->set_sdk_ready(SdkEngine::IsReady());
+        response->set_sdk_version(SdkEngine::IsReady() ? SdkEngine::GetVersion() : 0);
+        response->set_sdk_activated(SdkEngine::IsActivated());
+        // Server state
+        response->set_log_level(ServerLog::instance().levelName());
         return grpc::Status::OK;
     }
 
@@ -1307,6 +1380,8 @@ public:
                 oss << "item " << request->objectptr().handle() << " is not a node (evaluate requires a node)";
                 return failInvalidArg(SVC, __func__, oss.str());
             }
+            ServerLog::instance().req(SVC, "evaluate",
+                "handle=" + std::to_string(request->objectptr().handle()));
             node->evaluate();
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
@@ -1317,6 +1392,8 @@ public:
             grpc::Status status;
             auto* item = requireItem(request->objectptr().handle(), SVC, __func__, status);
             if (!item) return status;
+            ServerLog::instance().req(SVC, "deleteUnconnectedItems",
+                "handle=" + std::to_string(request->objectptr().handle()));
             item->deleteUnconnectedItems();
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
@@ -1461,6 +1538,68 @@ public:
                     << " not supported on handle " << request->objectptr().handle();
                 return failInvalidArg(SVC, __func__, oss.str());
             }
+
+            // Type mismatch detection: compare the attribute's SDK type with the
+            // oneof value the client sent. Catches errors like sending a float3
+            // to an int attribute. Allows float→float4 and int→int4 promotions
+            // because the SDK uses float4/int4 internally for value nodes.
+            {
+                const Octane::ApiAttributeInfo& attrInfo = item->attrInfo(attrId);
+                auto sentCase = request->value_case();
+                bool mismatch = false;
+                std::string sent;
+                auto t = attrInfo.mType;
+
+                // Helper: check if SDK type is in a compatible float family or int family
+                auto isFloatFamily = [](Octane::AttributeType t) {
+                    return t == Octane::AT_FLOAT || t == Octane::AT_FLOAT2
+                        || t == Octane::AT_FLOAT3 || t == Octane::AT_FLOAT4;
+                };
+                auto isIntFamily = [](Octane::AttributeType t) {
+                    return t == Octane::AT_INT || t == Octane::AT_INT2
+                        || t == Octane::AT_INT3 || t == Octane::AT_INT4;
+                };
+
+                switch (sentCase) {
+                    case octaneapi::ApiItem::setValueByIDRequest::kBoolValue:
+                        if (t != Octane::AT_BOOL) { mismatch = true; sent = "bool"; } break;
+                    case octaneapi::ApiItem::setValueByIDRequest::kIntValue:
+                        // Allow int → int/int2/int3/int4 (SDK wraps scalar to int4 internally)
+                        if (!isIntFamily(t)) { mismatch = true; sent = "int"; } break;
+                    case octaneapi::ApiItem::setValueByIDRequest::kInt2Value:
+                        if (!isIntFamily(t)) { mismatch = true; sent = "int2"; } break;
+                    case octaneapi::ApiItem::setValueByIDRequest::kInt3Value:
+                        if (!isIntFamily(t)) { mismatch = true; sent = "int3"; } break;
+                    case octaneapi::ApiItem::setValueByIDRequest::kInt4Value:
+                        if (!isIntFamily(t)) { mismatch = true; sent = "int4"; } break;
+                    case octaneapi::ApiItem::setValueByIDRequest::kLongValue:
+                        if (t != Octane::AT_LONG && t != Octane::AT_LONG2) { mismatch = true; sent = "long"; } break;
+                    case octaneapi::ApiItem::setValueByIDRequest::kFloatValue:
+                        // Allow float → float/float2/float3/float4 (SDK wraps scalar to float4 internally)
+                        if (!isFloatFamily(t)) { mismatch = true; sent = "float"; } break;
+                    case octaneapi::ApiItem::setValueByIDRequest::kFloat2Value:
+                        if (!isFloatFamily(t)) { mismatch = true; sent = "float2"; } break;
+                    case octaneapi::ApiItem::setValueByIDRequest::kFloat3Value:
+                        if (!isFloatFamily(t)) { mismatch = true; sent = "float3"; } break;
+                    case octaneapi::ApiItem::setValueByIDRequest::kFloat4Value:
+                        if (!isFloatFamily(t)) { mismatch = true; sent = "float4"; } break;
+                    case octaneapi::ApiItem::setValueByIDRequest::kMatrixValue:
+                        if (t != Octane::AT_MATRIX) { mismatch = true; sent = "matrix"; } break;
+                    case octaneapi::ApiItem::setValueByIDRequest::kStringValue:
+                        if (t != Octane::AT_STRING && t != Octane::AT_FILENAME) { mismatch = true; sent = "string"; } break;
+                    default: break;
+                }
+
+                if (mismatch) {
+                    std::ostringstream oss;
+                    oss << "type mismatch on attribute " << static_cast<int>(attrId)
+                        << " (handle " << request->objectptr().handle() << "): SDK type is "
+                        << static_cast<int>(t) << " but you sent " << sent
+                        << ". Use the matching value field for the attribute's type.";
+                    return failInvalidArg(SVC, __func__, oss.str());
+                }
+            }
+
             bool evaluate = request->has_evaluate() ? request->evaluate() : true;
 
             switch (request->value_case()) {
@@ -1855,6 +1994,19 @@ public:
             }
 
             node->connectTo(pinName.c_str(), source, request->evaluate(), request->docyclecheck());
+
+            // Post-connect verification: read back pin to confirm connection took effect.
+            // SDK connectTo() is void — silent failure on type mismatch or invalid pin name.
+            if (source) {
+                Octane::ApiNode* actual = node->connectedNode(pinName.c_str(), false);
+                if (!actual || actual->uniqueId() != source->uniqueId()) {
+                    std::ostringstream oss;
+                    oss << "connection to pin \"" << pinName << "\" on node " << request->objectptr().handle()
+                        << " did not take effect — source " << request->sourcenode().handle()
+                        << " may be incompatible with this pin type. Check pin type compatibility.";
+                    ServerLog::instance().log("WRN", SVC, __func__, oss.str());
+                }
+            }
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -1872,9 +2024,22 @@ public:
                 if (!source) return status;
             }
 
+            uint32_t pinIdx = request->pinidx();
             // Don't bounds-check pinIdx — SDK handles it. Mesh nodes may have
             // pins before pinCount() reflects them (e.g. material slot on empty mesh).
-            node->connectToIx(request->pinidx(), source, request->evaluate(), request->docyclecheck());
+            node->connectToIx(pinIdx, source, request->evaluate(), request->docyclecheck());
+
+            // Post-connect verification: confirm connection took effect
+            if (source && pinIdx < node->pinCount()) {
+                Octane::ApiNode* actual = node->connectedNodeIx(pinIdx, false);
+                if (!actual || actual->uniqueId() != source->uniqueId()) {
+                    std::ostringstream oss;
+                    oss << "connection to pin index " << pinIdx << " on node " << request->objectptr().handle()
+                        << " did not take effect — source " << request->sourcenode().handle()
+                        << " may be incompatible with this pin type. Check pin type compatibility.";
+                    ServerLog::instance().log("WRN", SVC, __func__, oss.str());
+                }
+            }
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -2248,7 +2413,8 @@ static void purgeStaleClones() {
     auto now = std::chrono::steady_clock::now();
     for (auto it = sClonedSurfaces.begin(); it != sClonedSurfaces.end(); ) {
         if (now - it->second.created > SS_CLONE_TTL) {
-            std::cerr << "[dxSS] Purging stale clone frameId=" << it->first << std::endl;
+            ServerLog::instance().log("WRN", "SharedSurfaceFrame", "purgeStaleClones",
+                "purging stale clone frameId=" + std::to_string(it->first));
             it->second.surface->release();
             it = sClonedSurfaces.erase(it);
         } else {
@@ -2317,6 +2483,12 @@ public:
 
             // Clone the shared surface to keep it alive after releaseRenderResult
             Octane::ApiSharedSurface* cloned = ssImage->mSharedSurface->clone();
+            if (!cloned) {
+                Octane::ApiRenderEngine::releaseRenderResult();
+                response->set_result(false);
+                ServerLog::instance().err(SVC, __func__, "shared surface clone() returned null");
+                return grpc::Status(grpc::StatusCode::INTERNAL, "shared surface clone failed");
+            }
             void* ssHandle = cloned->getD3D11Handle();
             uint64_t luid  = cloned->getD3D11AdapterLuid();
 
@@ -2379,10 +2551,11 @@ public:
                 }
             }
 
-            std::cerr << "[grabSharedFrame] frame=" << frameW << "x" << frameH
-                      << " pitch=" << framePitch << " type=" << static_cast<int>(frameType)
-                      << " handle=" << ssHandle << " dupHandle=" << dupHandle
-                      << " frameId=" << frameId << std::endl;
+            ServerLog::instance().res(SVC, "grabSharedFrame",
+                "frame=" + std::to_string(frameW) + "x" + std::to_string(frameH)
+                + " pitch=" + std::to_string(framePitch)
+                + " type=" + std::to_string(static_cast<int>(frameType))
+                + " frameId=" + std::to_string(frameId));
 
             // Populate the response
             auto* frame = response->mutable_frame();
@@ -2419,6 +2592,9 @@ public:
             if (it != sClonedSurfaces.end()) {
                 it->second.surface->release();
                 sClonedSurfaces.erase(it);
+            } else {
+                ServerLog::instance().log("WRN", SVC, __func__,
+                    "frameId " + std::to_string(frameId) + " not found in cloned surfaces (already released or never cloned)");
             }
 #endif
             return grpc::Status::OK;
@@ -2498,7 +2674,12 @@ void GrpcServer::RunServer() {
 
     mServer = builder.BuildAndStart();
     if (!mServer) {
-        std::cerr << "[OctaneServGrpc] ERROR: Failed to start gRPC server on " << serverAddress << std::endl;
+        std::string detail = "Failed to start gRPC server on " + serverAddress
+            + " — port " + std::to_string(mPort) + " is likely in use by another process."
+            + " Kill the other octaneServGrpc instance (taskkill //F //IM octaneServGrpc.exe)"
+            + " or run on a different port: octaneServGrpc.exe " + std::to_string(mPort + 1);
+        std::cerr << "[OctaneServGrpc] ERROR: " << detail << std::endl;
+        ServerLog::instance().err("GrpcServer", "RunServer", detail);
         return;
     }
 

@@ -15,11 +15,8 @@ Full details: [QUICKSTART.md](QUICKSTART.md), [docs/BUILD.md](docs/BUILD.md)
 
 ## Reference
 
-- System design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Service mapping: [docs/REFERENCE.md](docs/REFERENCE.md)
-- Debug issues: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
-- Hardening plan: [docs/PLAN.md](docs/PLAN.md)
-- Native MCP design: [docs/UNIFY.md](docs/UNIFY.md) (pending)
+- Build + runtime + logging: [docs/BUILD.md](docs/BUILD.md)
+- TODO + roadmap: [docs/TODO.md](docs/TODO.md)
 
 ### Adding a New Service
 

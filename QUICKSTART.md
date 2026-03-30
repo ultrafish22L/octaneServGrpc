@@ -1,31 +1,45 @@
 # Quick Start
 
-## §1 Build
+**octaneServGrpc** is a C++ gRPC server that embeds the Octane Render SDK. AI agents and octaneWebR connect to it on port 51022 to build and render 3D scenes.
+
+## Prerequisites
+
+- Visual Studio 2022 (C++ desktop workload)
+- CMake 3.16+
+- Octane Render SDK 2026.2 at `../OctaneRenderSDK_Studio+_2026_2_win/`
+- Valid Octane subscription (falls back to demo mode without)
+
+## Build
 
 ```bash
-cd build && cmake .. -G "Visual Studio 17 2022"   # first time ~4 min (downloads gRPC)
-cmake --build . --config Release --target octaneServGrpc
+mkdir build && cd build
+cmake .. -G "Visual Studio 17 2022"                    # ~4 min first time (downloads gRPC)
+cmake --build . --config Release --target octaneServGrpc  # ~3 min
 ```
 
-Requires: VS 2022, CMake 3.16+, Octane SDK at `../OctaneRenderSDK_Studio+_2026_2_win/`. See [docs/BUILD.md](docs/BUILD.md) for details.
-
-## §2 Run
+## Run
 
 ```bash
-build/Release/octaneServGrpc.exe [port]   # default 51022, --log-level=debug for verbose
+build/Release/octaneServGrpc.exe                       # listens on 127.0.0.1:51022
 ```
 
-Verify: `powershell -Command "Get-NetTCPConnection -LocalPort 51022"`
-Kill: `taskkill //F //IM octaneServGrpc.exe`
-Log: `build/Release/log_serv.log`
+Verify: `powershell Get-NetTCPConnection -LocalPort 51022`
+Log: `build/Release/log_serv.log` (level: debug by default)
 
-## §3 Test
+## Test
 
-1. Point octaneWebR at port 51022: `npm run dev`
-2. MCP smoke: `get_octane_version`, `get_device_info`
-3. Scene test: `load_project` with ORBX, verify `get_scene_tree` returns nodes
-4. Render test: `start_render`, `save_render` to PNG, verify not blank
-5. Viewport: verify render images stream to preview
-6. Full test: glass metal DRESS — see `octaneWebR/docs/mcp/TEST_PLAN.md`
+```bash
+# Via MCP tools (from octaneWebR):
+get_octane_version       # verify connection + build number
+reset_project            # clean scene
+place_geo(sphere)        # create geometry
+fit_camera               # frame it
+start_render             # render
+save_render              # save PNG, verify visually
+```
 
-See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for issues.
+## Next Steps
+
+- [docs/BUILD.md](docs/BUILD.md) — Build details, runtime issues, logging
+- [docs/TESTING.md](docs/TESTING.md) — Test procedures and validation testing
+- [docs/TODO.md](docs/TODO.md) — Unimplemented RPCs and roadmap
