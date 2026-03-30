@@ -1,4 +1,8 @@
 #pragma once
+#ifdef _WIN32
+#   define WIN32_LEAN_AND_MEAN
+#   include <windows.h>
+#endif
 // ═══════════════════════════════════════════════════════════════════════════
 // OctaneServGrpc Logging
 //
@@ -44,24 +48,42 @@ public:
     /// Set an external log sink (called for every line that passes level filtering)
     void setExternalSink(ExternalLogFunc func) { mExternalSink = func; }
 
-    void init(const std::string& exePath, LogLevel level = LogLevel::Debug) {
+    void init(const std::string& exePath, LogLevel level = LogLevel::Off) {
         std::lock_guard<std::mutex> lock(mMutex);
         mLevel = level;
         if (mLevel == LogLevel::Off) return;
 
         // Place log file next to the exe
-        std::string dir = exePath.substr(0, exePath.find_last_of("\\/"));
-        std::string logPath = dir + "/log_serv.log";
+        std::string dir;
+        auto sep = exePath.find_last_of("\\/");
+        if (sep != std::string::npos) {
+            dir = exePath.substr(0, sep);
+        } else {
+            // No directory in path — resolve from exe module path
+#ifdef _WIN32
+            char modPath[MAX_PATH];
+            if (GetModuleFileNameA(NULL, modPath, MAX_PATH)) {
+                std::string mp(modPath);
+                auto msep = mp.find_last_of("\\/");
+                dir = (msep != std::string::npos) ? mp.substr(0, msep) : ".";
+            } else {
+                dir = ".";
+            }
+#else
+            dir = ".";
+#endif
+        }
+        mLogPath = dir + "/log_serv.log";
 
-        mFile.open(logPath, std::ios::app);
+        mFile.open(mLogPath, std::ios::app);
         if (!mFile.is_open()) {
-            std::cerr << "[OctaneServGrpc] WARNING: Could not open " << logPath << " for logging" << std::endl;
+            std::cerr << "[OctaneServGrpc] WARNING: Could not open " << mLogPath << " for logging" << std::endl;
             mLevel = LogLevel::Off;
             return;
         }
 
         mFile << "=== OctaneServGrpc Log started " << timestamp() << " (level: " << levelName() << ") ===" << std::endl;
-        std::cout << "[OctaneServGrpc] Logging to " << logPath << " (level: " << levelName() << ")" << std::endl;
+        std::cout << "[OctaneServGrpc] Logging to " << mLogPath << " (level: " << levelName() << ")" << std::endl;
     }
 
     void log(const char* prefix, const std::string& service, const std::string& method,
@@ -93,10 +115,19 @@ public:
             }
         }
 
-        // Forward to external sink (Octane log window) outside the file lock
-        auto sink = mExternalSink;
-        if (sink) {
-            sink(prefix, service.c_str(), method.c_str(), detail.c_str());
+        // Forward to Octane log window via external sink.
+        // Policy: errors always, mutating/lifecycle always, debug reads at debug+,
+        // high-freq per-RPC firehose (everything else) only at verbose.
+        bool forwardToSink = isError
+            || sMutatingMethods.count(method)
+            || sDebugMethods.count(method)
+            || mLevel == LogLevel::Verbose;
+
+        if (forwardToSink) {
+            auto sink = mExternalSink;
+            if (sink) {
+                sink(prefix, service.c_str(), method.c_str(), detail.c_str());
+            }
         }
     }
 
@@ -111,6 +142,7 @@ public:
     }
 
     LogLevel level() const { return mLevel; }
+    const std::string& logPath() const { return mLogPath; }
 
     static LogLevel parseLevel(const std::string& s) {
         if (s == "verbose") return LogLevel::Verbose;
@@ -152,7 +184,8 @@ private:
 
     std::mutex mMutex;
     std::ofstream mFile;
-    LogLevel mLevel = LogLevel::Debug;
+    std::string mLogPath;
+    LogLevel mLevel = LogLevel::Off;
     ExternalLogFunc mExternalSink = nullptr;
 
     // Mirror the client's method sets for consistent filtering

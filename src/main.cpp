@@ -69,6 +69,7 @@ static OctaneServ::GrpcServer* gServer = nullptr;
 #define IDR_DEVICE_SETTINGS 1005
 #define IDR_MAIN_WINDOW    1007
 #define IDR_AUTH            1008
+#define IDR_SERV_LOG       1009
 #define IDR_EXIT           1002
 
 // Global Variables
@@ -91,9 +92,17 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
 
+    // Single-instance guard — only one octaneServGrpc process allowed
+    HANDLE hMutex = CreateMutexW(NULL, FALSE, L"Global\\OctaneServGrpc_SingleInstance");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        OutputDebugStringA("[OctaneServGrpc] Another instance is already running. Exiting.\n");
+        if (hMutex) CloseHandle(hMutex);
+        return 0;
+    }
+
     // Parse command line for port and log level
     uint16_t port = DEFAULT_PORT;
-    OctaneServ::LogLevel logLevel = OctaneServ::LogLevel::Debug;
+    OctaneServ::LogLevel logLevel = OctaneServ::LogLevel::Off;
     std::string cmdline = lpCmdLine;
     if (!cmdline.empty()) {
         try { port = static_cast<uint16_t>(std::stoi(cmdline)); } catch (...) {}
@@ -154,6 +163,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
     OctaneServ::SdkEngine::Exit();
 
     ::Shell_NotifyIcon(NIM_DELETE, &TaskStruct);
+    if (hMutex) CloseHandle(hMutex);
     return 0;
 }
 
@@ -212,6 +222,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         case IDR_AUTH:
             OctaneServ::SdkEngine::OpenAuthWindow();
             break;
+        case IDR_SERV_LOG: {
+            auto& path = OctaneServ::ServerLog::instance().logPath();
+            if (!path.empty())
+                ShellExecuteA(NULL, "open", path.c_str(), NULL, NULL, SW_SHOWNORMAL);
+            break;
+        }
         case IDR_EXIT:
             ::PostMessage(hWnd, WM_QUIT, 0, 0);
             break;
@@ -288,13 +304,14 @@ void UpdateTaskBarInfo(bool init) {
 BOOL ShowPopupMenu(HWND hWnd, POINT* curpos, int wDefaultItem) {
     HMENU hPop = CreatePopupMenu();
     InsertMenu(hPop, 0, MF_BYPOSITION | MF_STRING, IDR_LOG_WINDOW,     "Log Window");
-    InsertMenu(hPop, 1, MF_BYPOSITION | MF_STRING, IDR_MAIN_WINDOW,    "Octane Standalone");
-    InsertMenu(hPop, 2, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-    InsertMenu(hPop, 3, MF_BYPOSITION | MF_STRING, IDR_DEVICE_SETTINGS, "Device Settings");
-    InsertMenu(hPop, 4, MF_BYPOSITION | MF_STRING, IDR_PREFERENCES,    "Preferences");
-    InsertMenu(hPop, 5, MF_BYPOSITION | MF_STRING, IDR_AUTH,           "Activation");
-    InsertMenu(hPop, 6, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-    InsertMenu(hPop, 7, MF_BYPOSITION | MF_STRING, IDR_EXIT,           "Exit");
+    InsertMenu(hPop, 1, MF_BYPOSITION | MF_STRING, IDR_SERV_LOG,      "Server Log");
+    InsertMenu(hPop, 2, MF_BYPOSITION | MF_STRING, IDR_MAIN_WINDOW,   "Octane Standalone");
+    InsertMenu(hPop, 3, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+    InsertMenu(hPop, 4, MF_BYPOSITION | MF_STRING, IDR_DEVICE_SETTINGS, "Device Settings");
+    InsertMenu(hPop, 5, MF_BYPOSITION | MF_STRING, IDR_PREFERENCES,   "Preferences");
+    InsertMenu(hPop, 6, MF_BYPOSITION | MF_STRING, IDR_AUTH,          "Activation");
+    InsertMenu(hPop, 7, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+    InsertMenu(hPop, 8, MF_BYPOSITION | MF_STRING, IDR_EXIT,          "Exit");
     SetFocus(hWnd);
     SendMessage(hWnd, WM_INITMENUPOPUP, (WPARAM)hPop, 0);
     POINT pt;
@@ -353,6 +370,14 @@ int main(int argc, char* argv[]) {
 // Provides visible stdout/stderr for debugging.
 //--------------------------------------------------------------------------------
 int main(int argc, char* argv[]) {
+    // Single-instance guard
+    HANDLE hMutex = CreateMutexW(NULL, FALSE, L"Global\\OctaneServGrpc_SingleInstance");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        std::cerr << "[OctaneServGrpc] ERROR: Another instance is already running." << std::endl;
+        if (hMutex) CloseHandle(hMutex);
+        return 1;
+    }
+
     uint16_t port = DEFAULT_PORT;
     if (argc > 1) {
         try { port = static_cast<uint16_t>(std::stoi(argv[1])); } catch (...) {}
@@ -363,7 +388,7 @@ int main(int argc, char* argv[]) {
 
     // Init file logging — parse --log-level arg or SERV_LOG_LEVEL env
     {
-        OctaneServ::LogLevel logLevel = OctaneServ::LogLevel::Debug;
+        OctaneServ::LogLevel logLevel = OctaneServ::LogLevel::Off;
         const char* envLevel = std::getenv("SERV_LOG_LEVEL");
         if (envLevel) logLevel = OctaneServ::ServerLog::parseLevel(envLevel);
         for (int i = 1; i < argc; ++i) {
@@ -406,6 +431,7 @@ int main(int argc, char* argv[]) {
     delete gServer;
     gServer = nullptr;
     OctaneServ::SdkEngine::Exit();
+    if (hMutex) CloseHandle(hMutex);
     std::cout << "[OctaneServGrpc] Done." << std::endl;
     return 0;
 }
