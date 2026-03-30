@@ -2200,8 +2200,27 @@ public:
 // State for cross-process handle duplication
 static std::atomic<DWORD> sViewportClientPid{0};
 static std::mutex sSharedFrameMutex;
-static std::map<uint64_t, Octane::ApiSharedSurface*> sClonedSurfaces;
+struct ClonedSurfaceEntry {
+    Octane::ApiSharedSurface* surface;
+    std::chrono::steady_clock::time_point created;
+};
+static std::map<uint64_t, ClonedSurfaceEntry> sClonedSurfaces;
 static std::atomic<uint64_t> sNextFrameId{1};
+static constexpr auto SS_CLONE_TTL = std::chrono::seconds(30);
+
+// Purge cloned surfaces older than TTL (call under sSharedFrameMutex)
+static void purgeStaleClones() {
+    auto now = std::chrono::steady_clock::now();
+    for (auto it = sClonedSurfaces.begin(); it != sClonedSurfaces.end(); ) {
+        if (now - it->second.created > SS_CLONE_TTL) {
+            std::cerr << "[dxSS] Purging stale clone frameId=" << it->first << std::endl;
+            it->second.surface->release();
+            it = sClonedSurfaces.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
 #endif
 
 class SharedSurfaceFrameServiceImpl final
@@ -2296,7 +2315,8 @@ public:
             uint64_t frameId = sNextFrameId.fetch_add(1);
             {
                 std::lock_guard<std::mutex> lock(sSharedFrameMutex);
-                sClonedSurfaces[frameId] = cloned;
+                purgeStaleClones();
+                sClonedSurfaces[frameId] = { cloned, std::chrono::steady_clock::now() };
             }
 
             // Get dimensions — ApiRenderImage.mSize may be {0,0} when SS is active,
@@ -2362,7 +2382,7 @@ public:
             std::lock_guard<std::mutex> lock(sSharedFrameMutex);
             auto it = sClonedSurfaces.find(frameId);
             if (it != sClonedSurfaces.end()) {
-                it->second->release();
+                it->second.surface->release();
                 sClonedSurfaces.erase(it);
             }
 #endif
