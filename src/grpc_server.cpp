@@ -71,27 +71,14 @@ static void decodePinInfoHandle(uint64_t handle, uint64_t& nodeHandle, uint32_t&
 // Hardening infrastructure
 // ═══════════════════════════════════════════════════════════════════════════
 
-// GRPC_SAFE: Wraps every RPC method body. Catches C++ exceptions and
-// (on Windows) SEH exceptions. Returns descriptive gRPC error, never crashes.
-//
-// Usage:
-//   grpc::Status myMethod(...) override {
-//       GRPC_SAFE("MyService", {
-//           // ... method body ...
-//           return grpc::Status::OK;
-//       });
-//   }
-
 // GRPC_SAFE_BEGIN / GRPC_SAFE_END: Wraps every RPC method body.
 // Catches all C++ exceptions and returns a descriptive gRPC error.
 // The server NEVER crashes from a bad request.
 //
-// NOTE on SEH (Windows Structured Exception Handling):
-// __try/__except cannot coexist with C++ objects that have destructors
-// (grpc::Status, std::string) in the same function — MSVC error C2712.
-// Instead, we enable /EHa in CMakeLists.txt which makes catch(...)
-// also catch SEH exceptions (access violations, etc). This gives us
-// the same protection without the __try/__except syntax limitation.
+// On Windows, /EHa is enabled in CMakeLists.txt so catch(...) also catches
+// SEH exceptions (access violations, null dereferences). We can't use
+// __try/__except directly because it conflicts with C++ objects that have
+// destructors (grpc::Status, std::string) in the same function (MSVC C2712).
 //
 // Usage:
 //   grpc::Status myMethod(...) override {
@@ -213,6 +200,8 @@ static Octane::ApiItemArray* requireArray(uint64_t handle, const char* svc,
 // on auto-created pin children without first calling connectedNodeIx.
 static void registerPinChildrenRecursive(Octane::ApiNode* node, int depth = 0) {
     if (!node) return;
+    // 22 = generous max for Octane's deepest auto-created pin trees
+    // (RT→kernel→settings is ~8 deep; 22 gives 3x headroom)
     if (depth > 22) {
         ServerLog::instance().log("WRN", "HandleReg", "registerPinChildren",
             "depth limit 22 reached — deeper pin children will not be auto-registered");
@@ -266,7 +255,11 @@ static octaneapi::ImageType safeImageType(int raw, const char* ctx = nullptr) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ApiInfoService
+// ApiInfoService — SDK metadata and type catalog
+//
+// Exposes Octane version info, node type definitions, pin metadata, and
+// attribute metadata. Called by the MCP layer at startup for type discovery.
+// All methods are read-only — no scene state is modified.
 // ═══════════════════════════════════════════════════════════════════════════
 class InfoServiceImpl final : public octaneapi::ApiInfoService::Service {
     static constexpr const char* SVC = "ApiInfoService";
@@ -356,9 +349,9 @@ public:
                 oss << "no nodePinInfo for type " << static_cast<int>(nodeType) << " pin " << pinIx;
                 return failNotFound(SVC, __func__, static_cast<uint64_t>(nodeType), "pinInfo");
             }
-            // The proto returns ObjectRef — old gRPC pattern. Return 0 handle.
-            // The MCP caches the raw gRPC response; actual pin data comes from
-            // ApiNode::pinNameIx/pinTypeIx which are now implemented.
+            // nodePinInfo returns an ObjectRef in the proto, but pin info is
+            // accessed through ApiNode::pinInfoIx on the live node. Return
+            // handle 0 — the MCP layer calls getApiNodePinInfo for pin data.
             response->mutable_result()->set_handle(0);
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
@@ -426,7 +419,11 @@ public:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ApiProjectManagerService
+// ApiProjectManagerService — scene lifecycle
+//
+// Load, save, and reset Octane projects (.orbx). Provides access to the
+// root node graph (entry point for scene traversal). The handle registry
+// is cleared on loadProject/resetProject to prevent stale SDK pointers.
 // ═══════════════════════════════════════════════════════════════════════════
 class ProjectManagerServiceImpl final : public octaneapi::ApiProjectManagerService::Service {
     static constexpr const char* SVC = "ApiProjectManagerService";
@@ -494,7 +491,10 @@ public:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ApiChangeManagerService
+// ApiChangeManagerService — scene evaluation trigger
+//
+// Single RPC: update(). Flushes all pending attribute changes to the render
+// engine. Must be called after batched set() calls with evaluate=false.
 // ═══════════════════════════════════════════════════════════════════════════
 class ChangeManagerServiceImpl final : public octaneapi::ApiChangeManagerService::Service {
     static constexpr const char* SVC = "ApiChangeManagerService";
@@ -509,7 +509,11 @@ public:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ApiRenderEngineService
+// ApiRenderEngineService — GPU render control and diagnostics
+//
+// Start/stop/pause rendering, device info, VRAM usage, geometry/texture
+// statistics, clay mode, save image, grab pixel buffers, enabled AOVs,
+// shared surface output configuration. Largest service in the server.
 // ═══════════════════════════════════════════════════════════════════════════
 class RenderEngineServiceImpl final : public octaneapi::ApiRenderEngineService::Service {
     static constexpr const char* SVC = "ApiRenderEngineService";
@@ -548,6 +552,7 @@ public:
         google::protobuf::Empty*) override {
         GRPC_SAFE_BEGIN(SVC)
             int mode = request->mode();
+            // ClayMode: 0=none, 1=grey, 2=color, 3=color+wireframe
             if (mode < 0 || mode > 3) {
                 std::ostringstream oss;
                 oss << "clay mode value " << mode << " is not valid (valid range: 0-3)";
@@ -583,6 +588,7 @@ public:
         google::protobuf::Empty*) override {
         GRPC_SAFE_BEGIN(SVC)
             int prio = request->priority();
+            // RenderPriority: 0=LOW, 1=MEDIUM, 2=HIGH
             if (prio < 0 || prio >= 3) {
                 std::ostringstream oss;
                 oss << "render priority " << prio << " is not valid (valid: 0=LOW, 1=MEDIUM, 2=HIGH)";
@@ -1036,7 +1042,12 @@ public:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LiveLinkService
+// LiveLinkService — real-time camera I/O and server health
+//
+// GetCamera/SetCamera for live viewport camera positioning (used by MCP's
+// fit_camera and set_camera). GetServVersion returns build number and
+// handle registry diagnostics for verifying the running server matches
+// the expected build.
 // ═══════════════════════════════════════════════════════════════════════════
 // Build number — increment on every code change to verify running code matches build.
 static constexpr int SERV_BUILD = 5;
@@ -1200,7 +1211,13 @@ public:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ApiItemService (apinodesystem_3) — get/set attributes
+// ApiItemService (apinodesystem_3) — item-level attribute operations
+//
+// Get/set attribute values by ID with full type dispatch (bool, int, int2-4,
+// long, float, float2-4, matrix, string). Attribute introspection (hasAttr,
+// attrInfo, attrCount). Item lifecycle (destroy, evaluate). The type dispatch
+// switch in getValueByAttrID/setValueByAttrID is the most complex code path
+// in the server — it handles all 14 SDK attribute types.
 // ═══════════════════════════════════════════════════════════════════════════
 class ItemServiceImpl final : public octaneapi::ApiItemService::Service {
     static constexpr const char* SVC = "ApiItemService";
@@ -1667,7 +1684,11 @@ private:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ApiItemArrayService (apinodesystem_1) — array iteration for scene tree
+// ApiItemArrayService (apinodesystem_1) — array iteration
+//
+// Size and indexed access for ApiItemArrays returned by graph operations
+// (getOwnedItems, findNodes, findItemsByName). Arrays are heap-allocated
+// and owned by the handle registry — freed on Clear or UnregisterArray.
 // ═══════════════════════════════════════════════════════════════════════════
 class ItemArrayServiceImpl final : public octaneapi::ApiItemArrayService::Service {
     static constexpr const char* SVC = "ApiItemArrayService";
@@ -1706,7 +1727,12 @@ public:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ApiNodeService (apinodesystem_7) — create, connect, pin operations
+// ApiNodeService (apinodesystem_7) — node creation, connections, pin I/O
+//
+// Core scene-building API. Create nodes in a graph, connect/disconnect pins
+// by name or index, read pin values (bool/int/float/float3). Pin children
+// are auto-registered recursively on create so the client can immediately
+// query attributes on auto-created child nodes (e.g. RT→camera→aperture).
 // ═══════════════════════════════════════════════════════════════════════════
 class NodeServiceImpl final : public octaneapi::ApiNodeService::Service {
     static constexpr const char* SVC = "ApiNodeService";
@@ -2008,6 +2034,10 @@ public:
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ApiNodeGraphService (apinodesystem_6) — scene tree traversal
+//
+// Graph-level queries: enumerate owned items, search by name or type,
+// deep-copy item trees. Results are returned as ApiItemArrays managed
+// by the handle registry. Used by MCP's get_scene_tree and find_nodes.
 // ═══════════════════════════════════════════════════════════════════════════
 class NodeGraphServiceImpl final : public octaneapi::ApiNodeGraphService::Service {
     static constexpr const char* SVC = "ApiNodeGraphService";
@@ -2098,7 +2128,12 @@ public:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ApiNodePinInfoExService — detailed pin info lookup
+// ApiNodePinInfoExService — detailed pin metadata
+//
+// Returns full ApiNodePinInfo for a pin: type, name, label, description,
+// float/int ranges with slider bounds, and enum value/label pairs. Uses
+// encoded handles (high 48 bits = node uniqueId, low 16 bits = pin index)
+// to avoid caching pin info objects server-side.
 // ═══════════════════════════════════════════════════════════════════════════
 class NodePinInfoExServiceImpl final : public octaneapi::ApiNodePinInfoExService::Service {
     static constexpr const char* SVC = "ApiNodePinInfoExService";
@@ -2452,7 +2487,7 @@ void GrpcServer::RunServer() {
     builder.RegisterService(&nodePinInfoExService);
     builder.RegisterService(&sharedSurfaceFrameService);
 
-    // Configure message sizes (match Octane's settings)
+    // 64 MB — matches Octane's built-in gRPC server message size limit
     builder.SetMaxReceiveMessageSize(64 * 1024 * 1024);
     builder.SetMaxSendMessageSize(64 * 1024 * 1024);
 

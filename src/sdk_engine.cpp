@@ -22,7 +22,7 @@ API_RLOG_DECLARE(serv, "serv", "gRPC server operations")
 
 // Callback that forwards ServerLog lines to the Octane log window
 static void octaneLogSink(const char* prefix, const char* service, const char* method, const char* detail) {
-    char buf[1024];
+    char buf[1024]; // sufficient for "[prefix] Service.method detail" log format
     if (detail && detail[0]) {
         std::snprintf(buf, sizeof(buf), "%s %s.%s %s", prefix, service, method, detail);
     } else {

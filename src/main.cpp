@@ -1,6 +1,5 @@
 // octaneServGrpc main.cpp
 // Windows tray application that embeds the Octane Render SDK and serves gRPC.
-// Lifted from octaneservermodule/src/appserver_octane/main.cpp, adapted for octaneServGrpc.
 
 #ifdef _WIN32
 #   define WIN32_LEAN_AND_MEAN
@@ -29,7 +28,6 @@ static constexpr uint16_t DEFAULT_PORT = 51022;
 
 //--------------------------------------------------------------------------------
 // AppThread — runs the gRPC server in a worker thread
-// Lifted from octaneservermodule/src/appserver_octane/main.cpp
 //--------------------------------------------------------------------------------
 class AppThread {
 public:
@@ -59,7 +57,7 @@ static OctaneServ::GrpcServer* gServer = nullptr;
 
 #if defined(_WIN32) && defined(SERV_WIN32_APP)
 //--------------------------------------------------------------------------------
-// Windows tray app (lifted from appserver_octane/main.cpp)
+// Windows tray app
 // Only compiled when SERV_WIN32_APP is defined (release tray app builds)
 //--------------------------------------------------------------------------------
 
@@ -71,6 +69,9 @@ static OctaneServ::GrpcServer* gServer = nullptr;
 #define IDR_AUTH            1008
 #define IDR_SERV_LOG       1009
 #define IDR_EXIT           1002
+
+// Windows message for tray icon callbacks
+static constexpr UINT WM_TRAY_CALLBACK = WM_APP + 100;
 
 // Global Variables
 static HWND            hWnd;
@@ -131,7 +132,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
     TaskStruct.hWnd = hWnd;
     TaskStruct.uID = 1;
     TaskStruct.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
-    TaskStruct.uCallbackMessage = WM_APP + 100;
+    TaskStruct.uCallbackMessage = WM_TRAY_CALLBACK;
     TaskStruct.hIcon = hIconSmall;
 
     // Initialize Octane SDK
@@ -244,7 +245,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_DESTROY:
         PostQuitMessage(0);
         break;
-    case WM_APP + 100:
+    case WM_TRAY_CALLBACK:
         if (lParam == WM_RBUTTONUP) {
             SetForegroundWindow(hWnd);
             ShowPopupMenu(hWnd, NULL, -1);
@@ -378,12 +379,24 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Parse arguments
     uint16_t port = DEFAULT_PORT;
-    if (argc > 1) {
-        try { port = static_cast<uint16_t>(std::stoi(argv[1])); } catch (...) {}
+    bool headless = false;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--headless") {
+            headless = true;
+        } else if (arg.substr(0, 7) == "--port=") {
+            try { port = static_cast<uint16_t>(std::stoi(arg.substr(7))); } catch (...) {}
+        } else if (arg.substr(0, 12) != "--log-level=") {
+            // Legacy: first bare numeric arg is port
+            try { port = static_cast<uint16_t>(std::stoi(arg)); } catch (...) {}
+        }
     }
 
-    std::cout << "[OctaneServGrpc] OctaneServGrpc starting (console mode)..." << std::endl;
+    std::cout << "[OctaneServGrpc] OctaneServGrpc starting ("
+              << (headless ? "headless" : "console") << " mode)..." << std::endl;
     std::cout << "[OctaneServGrpc] Port: " << port << std::endl;
 
     // Init file logging — parse --log-level arg or SERV_LOG_LEVEL env
@@ -402,8 +415,10 @@ int main(int argc, char* argv[]) {
 
     if (!OctaneServ::SdkEngine::Init("PLORTEST", true)) {
         std::cerr << "[OctaneServGrpc] FAILED to initialize Octane SDK." << std::endl;
-        std::cerr << "[OctaneServGrpc] Press Enter to exit..." << std::endl;
-        std::cin.get();
+        if (!headless) {
+            std::cerr << "[OctaneServGrpc] Press Enter to exit..." << std::endl;
+            std::cin.get();
+        }
         return 1;
     }
 
@@ -414,14 +429,39 @@ int main(int argc, char* argv[]) {
     gServer = new OctaneServ::GrpcServer(port);
     gAppThread = new AppThread(gServer);
 
-    std::cout << "[OctaneServGrpc] Running. Press 'e' + Enter to exit, 'a' for activation." << std::endl;
-    while (true) {
-        char c;
-        std::cin >> c;
-        if (c == 'a') {
-            OctaneServ::SdkEngine::OpenAuthWindow();
-        } else if (c == 'e') {
-            break;
+    // Wait for gRPC server to actually bind and start accepting connections
+    for (int i = 0; i < 100 && !gServer->IsRunning(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    // Signal readiness — parent process (Electron) watches for this line
+    std::cout << "GRPC_READY " << port << std::endl;
+
+    if (headless) {
+        // Headless mode: block until stdin pipe is closed by the parent process.
+        // ReadFile on a pipe blocks until data arrives or the pipe breaks (parent exit).
+        HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+        if (hStdin && hStdin != INVALID_HANDLE_VALUE) {
+            char buf[1];
+            DWORD bytesRead;
+            // ReadFile blocks until pipe breaks (returns FALSE with ERROR_BROKEN_PIPE)
+            while (ReadFile(hStdin, buf, sizeof(buf), &bytesRead, NULL) && bytesRead > 0) {
+                // Drain any data sent by parent (none expected, but handle gracefully)
+            }
+        } else {
+            // No stdin handle — sleep until killed externally
+            Sleep(INFINITE);
+        }
+    } else {
+        std::cout << "[OctaneServGrpc] Running. Press 'e' + Enter to exit, 'a' for activation." << std::endl;
+        while (true) {
+            char c;
+            std::cin >> c;
+            if (c == 'a') {
+                OctaneServ::SdkEngine::OpenAuthWindow();
+            } else if (c == 'e') {
+                break;
+            }
         }
     }
 

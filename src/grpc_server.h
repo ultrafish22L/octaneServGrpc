@@ -29,6 +29,9 @@ public:
     /// Get the port the server is listening on.
     uint16_t GetPort() const { return mPort; }
 
+    /// True once the gRPC server is bound and accepting connections.
+    bool IsRunning() const { return mRunning.load(); }
+
     /// Get the handle registry (shared across all services).
     HandleRegistry& GetHandleRegistry() { return *mHandleRegistry; }
 

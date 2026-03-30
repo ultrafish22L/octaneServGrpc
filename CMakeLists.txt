@@ -162,7 +162,7 @@ if(MSVC)
 endif()
 
 # =============================================================================
-# Server executable
+# Shared sources for both server executables
 # =============================================================================
 set(SERV_SOURCES
     src/main.cpp
@@ -173,100 +173,134 @@ set(SERV_SOURCES
     src/util/server_log.cpp
 )
 
-option(SERV_TRAY_APP "Build as Windows tray app instead of console" ON)
+# Helper: configure a server target with SDK, gRPC, and platform settings.
+# Shared between octaneServGrpc (tray) and octaneGrpcSE (headless console).
+function(configure_serv_target TARGET_NAME)
+    target_include_directories(${TARGET_NAME} PRIVATE
+        ${OCTANE_INCLUDE_DIR}
+        ${OCTANE_INCLUDE_DIR}/octanegui
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(${TARGET_NAME} PRIVATE
+        ${OCTANE_LIB}
+        serv_protos
+        grpc++
+    )
+    target_include_directories(${TARGET_NAME} PRIVATE ${PROTO_GEN_DIR})
+    if(WIN32)
+        target_compile_options(${TARGET_NAME} PRIVATE /EHa)
+        target_link_libraries(${TARGET_NAME} PRIVATE bcrypt ws2_32 crypt32)
+        set_property(TARGET ${TARGET_NAME} PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+    endif()
+endfunction()
 
-if(WIN32 AND SERV_TRAY_APP)
-    # Windows tray app (WIN32 subsystem — no console window)
-    add_executable(octaneServGrpc WIN32
-        ${SERV_SOURCES}
-        src/OctaneServGrpc.rc
-    )
-    target_compile_definitions(octaneServGrpc PRIVATE SERV_WIN32_APP)
-elseif(WIN32)
-    # Windows console app (for debugging: cmake -DSERV_TRAY_APP=OFF ..)
-    add_executable(octaneServGrpc
-        ${SERV_SOURCES}
-        src/OctaneServGrpc.rc
-    )
-else()
-    add_executable(octaneServGrpc
-        ${SERV_SOURCES}
-    )
-endif()
-
-# Octane SDK
-target_include_directories(octaneServGrpc PRIVATE
-    ${OCTANE_INCLUDE_DIR}
-    ${OCTANE_INCLUDE_DIR}/octanegui
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+# Octane runtime files to copy next to each exe
+set(OCTANE_RUNTIME_FILES
+    octane.dll
+    octane.dat
+    libEGL.dll
+    libGLESv2.dll
+    libcef.dll
+    chrome_elf.dll
+    d3dcompiler_47.dll
+    vk_swiftshader.dll
+    vulkan-1.dll
+    icudtl.dat
+    resources.pak
+    chrome_100_percent.pak
+    chrome_200_percent.pak
+    snapshot_blob.bin
+    v8_context_snapshot.bin
+    vk_swiftshader_icd.json
+    en-US.pak
+    cef-helper.exe
 )
-target_link_libraries(octaneServGrpc PRIVATE ${OCTANE_LIB})
 
-# gRPC + protos
-target_link_libraries(octaneServGrpc PRIVATE
-    serv_protos
-    grpc++
-)
-target_include_directories(octaneServGrpc PRIVATE ${PROTO_GEN_DIR})
+# Helper: add post-build copy commands for Octane runtime DLLs
+function(copy_octane_runtime TARGET_NAME)
+    if(WIN32)
+        foreach(RUNTIME_FILE ${OCTANE_RUNTIME_FILES})
+            if(EXISTS "${OCTANE_BIN_DIR}/${RUNTIME_FILE}")
+                add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${OCTANE_BIN_DIR}/${RUNTIME_FILE}"
+                        "$<TARGET_FILE_DIR:${TARGET_NAME}>/${RUNTIME_FILE}"
+                    COMMENT "Copying ${RUNTIME_FILE} → ${TARGET_NAME}"
+                )
+            endif()
+        endforeach()
+    endif()
+endfunction()
 
-# Windows-specific
+# DLL CRT for serv_protos (shared by both targets)
 if(WIN32)
-    # /EHa: Enable SEH exceptions in C++ catch(...) blocks.
-    # This makes catch(...) also catch Windows structured exceptions
-    # (access violations, stack overflows, etc.) so the server never crashes.
-    # We can't use __try/__except directly because MSVC forbids it in functions
-    # with C++ objects that have destructors (grpc::Status, std::string).
-    target_compile_options(octaneServGrpc PRIVATE /EHa)
-    target_link_libraries(octaneServGrpc PRIVATE
-        bcrypt       # For HMAC-SHA256 in plugin auth
-        ws2_32       # Winsock (required by gRPC)
-        crypt32      # Windows crypto (required by BoringSSL)
-    )
-    # Use DLL CRT — static CRT causes unresolved externals with gRPC's BoringSSL/abseil.
-    # The Octane SDK (octane.dll) is a DLL anyway, so DLL CRT is fine.
-    set_property(TARGET octaneServGrpc PROPERTY
-        MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
-    # Apply same to serv_protos
     set_property(TARGET serv_protos PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 endif()
 
 # =============================================================================
-# Post-build: copy Octane runtime files
+# Target 1: octaneServGrpc — Windows tray app (original)
 # =============================================================================
 if(WIN32)
-    set(OCTANE_RUNTIME_FILES
-        octane.dll
-        octane.dat
-        libEGL.dll
-        libGLESv2.dll
-        libcef.dll
-        chrome_elf.dll
-        d3dcompiler_47.dll
-        vk_swiftshader.dll
-        vulkan-1.dll
-        icudtl.dat
-        resources.pak
-        chrome_100_percent.pak
-        chrome_200_percent.pak
-        snapshot_blob.bin
-        v8_context_snapshot.bin
-        vk_swiftshader_icd.json
-        en-US.pak
-        cef-helper.exe
+    add_executable(octaneServGrpc WIN32
+        ${SERV_SOURCES}
+        src/OctaneServGrpc.rc
     )
-
-    foreach(RUNTIME_FILE ${OCTANE_RUNTIME_FILES})
-        if(EXISTS "${OCTANE_BIN_DIR}/${RUNTIME_FILE}")
-            add_custom_command(TARGET octaneServGrpc POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${OCTANE_BIN_DIR}/${RUNTIME_FILE}"
-                    "$<TARGET_FILE_DIR:octaneServGrpc>/${RUNTIME_FILE}"
-                COMMENT "Copying ${RUNTIME_FILE}"
-            )
-        endif()
-    endforeach()
+    target_compile_definitions(octaneServGrpc PRIVATE SERV_WIN32_APP)
+    configure_serv_target(octaneServGrpc)
+    copy_octane_runtime(octaneServGrpc)
+else()
+    add_executable(octaneServGrpc ${SERV_SOURCES})
+    configure_serv_target(octaneServGrpc)
 endif()
+
+# =============================================================================
+# Target 2: octaneGrpcSE — headless console exe for Electron integration
+# =============================================================================
+if(WIN32)
+    add_executable(octaneGrpcSE
+        ${SERV_SOURCES}
+        src/OctaneServGrpc.rc
+    )
+else()
+    add_executable(octaneGrpcSE ${SERV_SOURCES})
+endif()
+configure_serv_target(octaneGrpcSE)
+copy_octane_runtime(octaneGrpcSE)
+
+# =============================================================================
+# Post-build: copy both exes + runtime to dev/bin/ for easy access
+# =============================================================================
+set(DEV_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../bin")
+
+# Helper: copy an exe and all Octane runtime files to dev/bin/
+function(copy_to_dev_bin TARGET_NAME)
+    # Copy the exe itself
+    add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${DEV_BIN_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:${TARGET_NAME}>"
+            "${DEV_BIN_DIR}/$<TARGET_FILE_NAME:${TARGET_NAME}>"
+        COMMENT "Copying ${TARGET_NAME} → dev/bin/"
+    )
+    # Copy runtime dependencies
+    if(WIN32)
+        foreach(RUNTIME_FILE ${OCTANE_RUNTIME_FILES})
+            if(EXISTS "${OCTANE_BIN_DIR}/${RUNTIME_FILE}")
+                add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${OCTANE_BIN_DIR}/${RUNTIME_FILE}"
+                        "${DEV_BIN_DIR}/${RUNTIME_FILE}"
+                    COMMENT "Copying ${RUNTIME_FILE} → dev/bin/"
+                )
+            endif()
+        endforeach()
+    endif()
+endfunction()
+
+copy_to_dev_bin(octaneServGrpc)
+copy_to_dev_bin(octaneGrpcSE)
 
 # =============================================================================
 # Summary
@@ -277,5 +311,5 @@ message(STATUS "  Octane SDK:   ${OCTANE_SDK_DIR}")
 message(STATUS "  gRPC version: ${GRPC_VERSION}")
 message(STATUS "  Proto dir:    ${PROTO_DIR}")
 message(STATUS "  Proto count:  96 files")
-message(STATUS "  Output:       octaneServGrpc.exe (Win32 tray app)")
+message(STATUS "  Targets:      octaneServGrpc.exe (tray app), octaneGrpcSE.exe (headless console)")
 message(STATUS "")

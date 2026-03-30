@@ -88,9 +88,27 @@ public:
 
     void log(const char* prefix, const std::string& service, const std::string& method,
              const std::string& detail = "") {
-        if (mLevel == LogLevel::Off) return;
-
         bool isError = (prefix[0] == 'E'); // ERR
+
+        // Forward to Octane log window via external sink (independent of file log level).
+        // Policy: errors always, mutating/lifecycle always, debug-level reads always.
+        // High-freq firehose (grabRenderResult, getRenderStatistics, etc.) only at verbose.
+        {
+            bool forwardToSink = isError
+                || sMutatingMethods.count(method)
+                || sDebugMethods.count(method)
+                || mLevel == LogLevel::Verbose;
+
+            if (forwardToSink) {
+                auto sink = mExternalSink;
+                if (sink) {
+                    sink(prefix, service.c_str(), method.c_str(), detail.c_str());
+                }
+            }
+        }
+
+        // File logging — skip if disabled
+        if (mLevel == LogLevel::Off) return;
 
         // Level filtering — same logic as client
         if (mLevel == LogLevel::Warn && !isError) return;
@@ -105,6 +123,7 @@ public:
                 std::string ts = timestamp();
                 mFile << "[" << ts << "]  " << prefix << " " << service << "." << method;
                 if (!detail.empty()) {
+                    // Truncate long details (e.g. base64 image data) to keep log readable
                     if (detail.size() > 800)
                         mFile << " " << detail.substr(0, 800) << "...";
                     else
@@ -112,21 +131,6 @@ public:
                 }
                 mFile << "\n";
                 mFile.flush();
-            }
-        }
-
-        // Forward to Octane log window via external sink.
-        // Policy: errors always, mutating/lifecycle always, debug reads at debug+,
-        // high-freq per-RPC firehose (everything else) only at verbose.
-        bool forwardToSink = isError
-            || sMutatingMethods.count(method)
-            || sDebugMethods.count(method)
-            || mLevel == LogLevel::Verbose;
-
-        if (forwardToSink) {
-            auto sink = mExternalSink;
-            if (sink) {
-                sink(prefix, service.c_str(), method.c_str(), detail.c_str());
             }
         }
     }
@@ -193,13 +197,16 @@ private:
     static const std::unordered_set<std::string> sDebugMethods;
 };
 
-// Convenience macro for services — logs REQ on entry, RES/ERR on exit
+// RAII logging macro for RPC methods. Logs REQ on construction, then logs
+// RES on .success() or ERR on destruction without .success(). Use in services
+// that need manual control over log timing (e.g. StreamCallbackService).
 #define SERV_LOG_RPC(service, method) \
     OctaneServ::ServerLog::instance().req(service, method); \
     auto _servLogGuard = OctaneServ::detail::RpcLogGuard(service, method)
 
 namespace detail {
-    // RAII guard that logs RES on success, ERR on exception
+    // RAII guard: logs RES on .success(), ERR on destruction without .success().
+    // Ensures every RPC entry gets a matching exit log even on exception paths.
     struct RpcLogGuard {
         std::string svc, meth;
         bool ok = false;

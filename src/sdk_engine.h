@@ -42,7 +42,6 @@ public:
     static void OpenDeviceSettings();
 
     /// Open the full Octane Standalone main window.
-
     static void OpenMainWindow();
 
     /// Check if license is activated.
