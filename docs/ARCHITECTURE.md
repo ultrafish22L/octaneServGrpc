@@ -69,18 +69,23 @@ Cleared on `resetProject()` / `loadProject()` to prevent stale pointers.
 
 ## Logging
 
-Two layers:
-1. **gRPC Interceptor** (`logging_interceptor.h`) — auto-logs every RPC (service.method, elapsed ms, status)
-2. **ServerLog** (`server_log.h`) — level-filtered file logger
+Three layers:
+1. **gRPC Interceptor** (`logging_interceptor.h`) — auto-logs every RPC (service.method, elapsed ms, status). Also acts as the SDK readiness guard (rejects all RPCs with UNAVAILABLE before SDK init).
+2. **ServerLog** (`server_log.h`) — level-filtered file logger with dual output:
+   - **File**: `log_serv.log` next to exe (controlled by `--log-level`, default: `debug`)
+   - **Octane log window**: via external sink (fires independently of file level — errors and mutating ops always forwarded, even with `--log-level=off`)
+3. **SDK log flag** (`API_RLOG(serv, ...)`) — lifecycle events (init, shutdown) logged to Octane's own log system
 
 Levels: `verbose` > `debug` (default) > `info` > `warn` > `off`
 
-Output: `log_serv.log` next to exe. Format matches octaneWebR's `log_grpc.log`:
+Format matches octaneWebR's `log_grpc.log` for side-by-side diff:
 ```
 [HH:MM:SS.mmm]  REQ ApiInfoService.octaneVersion
 [HH:MM:SS.mmm]  RES ApiInfoService.octaneVersion 0ms
 [HH:MM:SS.mmm]  ERR ApiItemService.isGraph 0ms code=5 Not found
 ```
+
+See `docs/TROUBLESHOOTING.md` § Debugging for the full log file table across both repos.
 
 ## SDK Lifecycle
 

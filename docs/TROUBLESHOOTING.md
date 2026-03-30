@@ -26,13 +26,53 @@
 
 ## Debugging
 
-```bash
-octaneServGrpc.exe --log-level=verbose   # logs every RPC call
+### Log Files
+
+Four log files across the stack. Read all of them when debugging — the same failure appears differently at each layer.
+
+| File | Location | Source | Default Level |
+|------|----------|--------|---------------|
+| `log_serv.log` | `build/Release/` (next to exe) | gRPC server (interceptor + ServerLog) | `debug` |
+| `log_grpc.log` | `octaneWebR/` root | gRPC client (OctaneGrpcClientBase + Vite proxy) | `debug` |
+| `log_mcp.log` | `octaneWebR/` root | MCP server (tool execution) | `debug` |
+| `log_client.log` | `octaneWebR/` root | Browser JS errors (batched via `/api/log`) | `info` |
+
+`log_serv.log` and `log_grpc.log` use the same format and can be diffed side-by-side:
+```
+[HH:MM:SS.mmm]  REQ ServiceName.methodName {details}
+[HH:MM:SS.mmm]  RES ServiceName.methodName {elapsed}ms
+[HH:MM:SS.mmm]  ERR ServiceName.methodName {error}
 ```
 
-Two logs: `build/Release/log_serv.log` (server RPCs) and `octaneWebR/log_grpc.log` (client RPCs).
+### Log Levels
 
-Log patterns — success: `REQ...RES 0ms`, unimplemented: `ERR code=12`, not found: `ERR code=5`.
+Server log level is set via `--log-level=<level>` or `SERV_LOG_LEVEL` env var:
+
+| Level | File Output | Octane Log Window |
+|-------|-------------|-------------------|
+| `verbose` | ALL RPC calls (firehose) | ALL RPC calls |
+| `debug` | Mutating + lifecycle + curated reads | Mutating + lifecycle + curated reads |
+| `info` | Mutating + lifecycle + errors | Mutating + lifecycle + errors |
+| `warn` | Errors only | Errors only |
+| `off` | Nothing | Mutating + lifecycle + errors (always forwarded) |
+
+The Octane log window sink fires independently of the file log level — errors and mutating operations always appear in the log window, even with `--log-level=off`.
+
+### Log Patterns
+
+| Pattern | Meaning |
+|---------|---------|
+| `REQ ... RES 0ms` | Success |
+| `ERR code=12` | Unimplemented (proto method not wired to SDK) |
+| `ERR code=5` | Not found (stale handle or missing node) |
+| `ERR code=3` | Invalid argument (bad input from client) |
+| `ERR code=9` | Failed precondition (e.g. no RT set) |
+
+### Verbose Mode
+
+```bash
+octaneServGrpc.exe --log-level=verbose   # logs every RPC call to file
+```
 
 ## Known Limitations
 

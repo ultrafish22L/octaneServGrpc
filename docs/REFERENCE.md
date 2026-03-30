@@ -99,13 +99,15 @@
 
 ## Log Levels
 
-| Level | What's Logged |
-|---|---|
-| `verbose` | ALL RPC calls (firehose) |
-| `debug` | Mutating + lifecycle + curated reads (DEFAULT) |
-| `info` | Mutating + lifecycle + errors only |
-| `warn` | Errors only |
-| `off` | Nothing |
+Set via `--log-level=<level>` or `SERV_LOG_LEVEL` env var.
+
+| Level | File (`log_serv.log`) | Octane Log Window |
+|---|---|---|
+| `verbose` | ALL RPC calls (firehose) | ALL RPC calls |
+| `debug` (DEFAULT) | Mutating + lifecycle + curated reads | Mutating + lifecycle + curated reads |
+| `info` | Mutating + lifecycle + errors only | Mutating + lifecycle + errors |
+| `warn` | Errors only | Errors only |
+| `off` | Disabled | Mutating + lifecycle + errors (always forwarded) |
 
 Mutating methods: create, destroy, setByAttrID, connectTo, startRendering, stopRendering, SetCamera, update, rootNodeGraph, etc.
 
