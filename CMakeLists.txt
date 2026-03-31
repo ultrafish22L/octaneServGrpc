@@ -319,3 +319,12 @@ list(LENGTH PROTO_FILES _PROTO_COUNT)
 message(STATUS "  Proto count:  ${_PROTO_COUNT} files")
 message(STATUS "  Targets:      octaneServGrpc.exe (tray app), octaneGrpcSE.exe (headless console)")
 message(STATUS "")
+
+# =============================================================================
+# Fuzz / stress test client (optional)
+# =============================================================================
+option(BUILD_FUZZ_TESTS "Build gRPC fuzz/stress test client (no SDK dependency)" OFF)
+if(BUILD_FUZZ_TESTS)
+    add_subdirectory(tests/fuzz)
+    message(STATUS "  Fuzz tests:   enabled (octane_fuzz_client)")
+endif()
