@@ -46,7 +46,7 @@ public:
     }
 
     /// Set an external log sink (called for every line that passes level filtering)
-    void setExternalSink(ExternalLogFunc func) { mExternalSink = func; }
+    void setExternalSink(ExternalLogFunc func) { mExternalSink.store(func); }
 
     void init(const std::string& exePath, LogLevel level = LogLevel::Off) {
         std::lock_guard<std::mutex> lock(mMutex);
@@ -100,7 +100,7 @@ public:
                 || mLevel == LogLevel::Verbose;
 
             if (forwardToSink) {
-                auto sink = mExternalSink;
+                auto sink = mExternalSink.load();
                 if (sink) {
                     sink(prefix, service.c_str(), method.c_str(), detail.c_str());
                 }
@@ -190,7 +190,7 @@ private:
     std::ofstream mFile;
     std::string mLogPath;
     LogLevel mLevel = LogLevel::Off;
-    ExternalLogFunc mExternalSink = nullptr;
+    std::atomic<ExternalLogFunc> mExternalSink{nullptr};
 
     // Mirror the client's method sets for consistent filtering
     static const std::unordered_set<std::string> sMutatingMethods;

@@ -6,6 +6,9 @@
 |---|---|---|
 | `ApiMaterialXGlobal` | `importMaterialXFile` | MCP tool `import_materialx` calls this. Returns UNIMPLEMENTED. |
 | `ApiRenderEngine` | `pickIntersection` | Viewport click → scene node. Proto exists, not wired. |
+| `ApiRootNodeGraph` | `importFromFile` | Proto exists (.ocs/.orbx only). Need OBJ+MTL import that creates mesh+material+textures in one pass (like standalone GUI import). Currently MCP parses MTL manually and wires textures. |
+| `ApiRenderEngine` | `saveRenderPasses1` | MCP tool `save_render_passes` (multi_layer:false). Returns UNIMPLEMENTED. |
+| `ApiRenderEngine` | `saveRenderPassesMultiExr1` | MCP tool `save_render_passes` (multi_layer:true). Returns UNIMPLEMENTED. |
 | `ApiNodeService` | `setPinValueByIx`, `setPinValueByPinID`, `setPinValueByName` | SDK limitation — these RPCs are stubs in the SDK itself. |
 
 ## Electron Packaging

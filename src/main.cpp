@@ -26,13 +26,28 @@
 // Default gRPC server port (same as Octane's built-in gRPC server)
 static constexpr uint16_t DEFAULT_PORT = 51022;
 
+// Parse a port string with bounds validation. Returns DEFAULT_PORT on failure.
+static uint16_t parsePort(const std::string& s) {
+    try {
+        int v = std::stoi(s);
+        if (v < 1 || v > 65535) {
+            std::cerr << "[OctaneServGrpc] WARNING: port " << v
+                      << " out of range (1-65535), using default " << DEFAULT_PORT << std::endl;
+            return DEFAULT_PORT;
+        }
+        return static_cast<uint16_t>(v);
+    } catch (...) {
+        return DEFAULT_PORT;
+    }
+}
+
 //--------------------------------------------------------------------------------
 // AppThread — runs the gRPC server in a worker thread
 //--------------------------------------------------------------------------------
 class AppThread {
 public:
     AppThread(OctaneServ::GrpcServer* server) : mServer(server) {
-        mThread = std::make_unique<std::thread>(&start, this);
+        mThread = std::make_unique<std::thread>([this]{ mServer->RunServer(); });
     }
 
     void stop() {
@@ -44,16 +59,10 @@ public:
 private:
     std::unique_ptr<std::thread> mThread;
     OctaneServ::GrpcServer* mServer = nullptr;
-
-    static unsigned int start(void* param) {
-        AppThread* thread = (AppThread*)param;
-        thread->mServer->RunServer();
-        return 0;
-    }
 };
 
-static AppThread* gAppThread = nullptr;
-static OctaneServ::GrpcServer* gServer = nullptr;
+static std::unique_ptr<AppThread> gAppThread;
+static std::unique_ptr<OctaneServ::GrpcServer> gServer;
 
 #if defined(_WIN32) && defined(SERV_WIN32_APP)
 //--------------------------------------------------------------------------------
@@ -106,7 +115,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
     OctaneServ::LogLevel logLevel = OctaneServ::LogLevel::Debug;
     std::string cmdline = lpCmdLine;
     if (!cmdline.empty()) {
-        try { port = static_cast<uint16_t>(std::stoi(cmdline)); } catch (...) {}
+        port = parsePort(cmdline);
     }
     const char* envLevel = std::getenv("SERV_LOG_LEVEL");
     if (envLevel) logLevel = OctaneServ::ServerLog::parseLevel(envLevel);
@@ -143,13 +152,13 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
     OctaneServ::SdkEngine::RegisterCallbacks();
 
     // Create and start the gRPC server
-    gServer = new OctaneServ::GrpcServer(port);
+    gServer = std::make_unique<OctaneServ::GrpcServer>(port);
     UpdateTaskBarInfo(true);
-    gAppThread = new AppThread(gServer);
+    gAppThread = std::make_unique<AppThread>(gServer.get());
 
     // Message loop
     MSG msg;
-    while (::GetMessage(&msg, hWnd, 0, 0)) {
+    while (::GetMessage(&msg, hWnd, 0, 0) > 0) {
         ::TranslateMessage(&msg);
         ::DispatchMessage(&msg);
     }
@@ -158,8 +167,8 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
     OctaneServ::SdkEngine::UnregisterCallbacks();
 
     gAppThread->stop();
-    delete gServer;
-    gServer = nullptr;
+    gAppThread.reset();
+    gServer.reset();
 
     OctaneServ::SdkEngine::Exit();
 
@@ -334,7 +343,7 @@ BOOL ShowPopupMenu(HWND hWnd, POINT* curpos, int wDefaultItem) {
 int main(int argc, char* argv[]) {
     uint16_t port = DEFAULT_PORT;
     if (argc > 1) {
-        try { port = static_cast<uint16_t>(std::stoi(argv[1])); } catch (...) {}
+        port = parsePort(argv[1]);
     }
 
     std::cout << "[OctaneServGrpc] OctaneServGrpc starting..." << std::endl;
@@ -345,8 +354,8 @@ int main(int argc, char* argv[]) {
     }
     OctaneServ::SdkEngine::RegisterCallbacks();
 
-    gServer = new OctaneServ::GrpcServer(port);
-    gAppThread = new AppThread(gServer);
+    gServer = std::make_unique<OctaneServ::GrpcServer>(port);
+    gAppThread = std::make_unique<AppThread>(gServer.get());
 
     std::cout << "[OctaneServGrpc] Press 'e' + Enter to exit, 'a' for activation" << std::endl;
     while (true) {
@@ -361,7 +370,8 @@ int main(int argc, char* argv[]) {
 
     OctaneServ::SdkEngine::UnregisterCallbacks();
     gAppThread->stop();
-    delete gServer;
+    gAppThread.reset();
+    gServer.reset();
     OctaneServ::SdkEngine::Exit();
     return 0;
 }
@@ -388,10 +398,10 @@ int main(int argc, char* argv[]) {
         if (arg == "--headless") {
             headless = true;
         } else if (arg.substr(0, 7) == "--port=") {
-            try { port = static_cast<uint16_t>(std::stoi(arg.substr(7))); } catch (...) {}
+            port = parsePort(arg.substr(7));
         } else if (arg.substr(0, 12) != "--log-level=") {
             // Legacy: first bare numeric arg is port
-            try { port = static_cast<uint16_t>(std::stoi(arg)); } catch (...) {}
+            port = parsePort(arg);
         }
     }
 
@@ -426,8 +436,8 @@ int main(int argc, char* argv[]) {
     OctaneServ::SdkEngine::RegisterCallbacks();
 
     std::cout << "[OctaneServGrpc] Starting gRPC server..." << std::endl;
-    gServer = new OctaneServ::GrpcServer(port);
-    gAppThread = new AppThread(gServer);
+    gServer = std::make_unique<OctaneServ::GrpcServer>(port);
+    gAppThread = std::make_unique<AppThread>(gServer.get());
 
     // Wait for gRPC server to actually bind and start accepting connections
     for (int i = 0; i < 100 && !gServer->IsRunning(); ++i) {
@@ -468,8 +478,8 @@ int main(int argc, char* argv[]) {
     std::cout << "[OctaneServGrpc] Shutting down..." << std::endl;
     OctaneServ::SdkEngine::UnregisterCallbacks();
     gAppThread->stop();
-    delete gServer;
-    gServer = nullptr;
+    gAppThread.reset();
+    gServer.reset();
     OctaneServ::SdkEngine::Exit();
     if (hMutex) CloseHandle(hMutex);
     std::cout << "[OctaneServGrpc] Done." << std::endl;

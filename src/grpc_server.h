@@ -2,7 +2,7 @@
 // OctaneServGrpc Server — hosts all Octane gRPC services
 //
 // Creates a gRPC server on the specified port, registers service implementations,
-// and runs until stopped. Replaces OctaneBlenderServer from octaneservermodule.
+// and runs until stopped.
 
 #include <string>
 #include <memory>

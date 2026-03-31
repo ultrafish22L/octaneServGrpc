@@ -1,5 +1,5 @@
 // OctaneServGrpc Server — hosts all Octane gRPC services
-// Serves the same Beta 2 protos that octaneWebR expects.
+// Serves the Octane SDK protos that octaneWebR expects.
 // Each service maps gRPC calls directly to Octane SDK C++ API calls.
 //
 // HARDENING: Every RPC is wrapped in GRPC_SAFE which catches C++ exceptions
@@ -138,6 +138,10 @@ static grpc::Status failPrecondition(const char* svc, const char* method,
 static Octane::ApiItem* requireItem(uint64_t handle, const char* svc,
     const char* method, grpc::Status& status)
 {
+    if (!sHandleRegistry) {
+        status = failPrecondition(svc, method, "server is shutting down (handle registry destroyed)");
+        return nullptr;
+    }
     if (handle == 0) {
         status = failInvalidArg(svc, method, "handle is 0 (must be non-zero uniqueId)");
         return nullptr;
@@ -188,6 +192,10 @@ static Octane::ApiNode* requireNode(uint64_t handle, const char* svc,
 static Octane::ApiItemArray* requireArray(uint64_t handle, const char* svc,
     const char* method, grpc::Status& status)
 {
+    if (!sHandleRegistry) {
+        status = failPrecondition(svc, method, "server is shutting down (handle registry destroyed)");
+        return nullptr;
+    }
     if (handle == 0) {
         status = failInvalidArg(svc, method, "array handle is 0");
         return nullptr;
@@ -940,7 +948,8 @@ private:
                                 "image " + std::to_string(i) + " has zero pitch — skipping");
                             continue;
                         }
-                        // Calculate buffer size based on image type
+                        // Calculate buffer size based on image type.
+                        // NOTE: mPitch is pixels-per-row (not bytes) per SDK apirender.h
                         size_t bytesPerPixel = 4; // default RGBA8
                         switch (img.mType) {
                             case Octane::IMAGE_TYPE_LDR_RGBA: bytesPerPixel = 4; break;
@@ -2396,6 +2405,10 @@ public:
 // SharedSurfaceFrameService — dxSS viewport path
 // ═══════════════════════════════════════════════════════════════════════════
 
+// DXGI format constants for shared surface frame output
+static constexpr uint32_t DXGI_FORMAT_R32G32B32A32_FLOAT = 2;
+static constexpr uint32_t DXGI_FORMAT_R8G8B8A8_UNORM     = 28;
+
 #ifdef _WIN32
 // State for cross-process handle duplication
 static std::atomic<DWORD> sViewportClientPid{0};
@@ -2564,10 +2577,9 @@ public:
             frame->set_width(frameW);
             frame->set_height(frameH);
             frame->set_pitch(framePitch);
-            frame->set_format(static_cast<uint32_t>(frameType == Octane::IMAGE_TYPE_HDR_RGBA
-                ? 2   // DXGI_FORMAT_R32G32B32A32_FLOAT
-                : 28  // DXGI_FORMAT_R8G8B8A8_UNORM
-            ));
+            frame->set_format(frameType == Octane::IMAGE_TYPE_HDR_RGBA
+                ? DXGI_FORMAT_R32G32B32A32_FLOAT
+                : DXGI_FORMAT_R8G8B8A8_UNORM);
             frame->set_frameid(frameId);
             frame->set_samplesperpixel(ssImage->mTonemappedSamplesPerPixel);
             frame->set_rendertime(ssImage->mRenderTime);

@@ -1,6 +1,5 @@
 #pragma once
 // SDK Engine — Octane Render SDK lifecycle management
-// Adapted from octaneservermodule/src/common_octane/common_octserv.cpp
 
 #include <string>
 #include <cstdint>

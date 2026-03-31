@@ -1,5 +1,4 @@
 // SDK Engine — Octane Render SDK lifecycle management
-// Adapted from octaneservermodule/src/common_octane/common_octserv.cpp
 
 #include "sdk_engine.h"
 #include "SERVKEY.h"
@@ -16,7 +15,7 @@
 // The plugin type identifier — must match the plugin key names
 #define PLUGIN_TYPE "PLORTEST"
 
-// Register 'grpc' log flag with the Octane log system.
+// Register 'serv' log flag with the Octane log system.
 // This runs at static init; the flag starts disabled until we call setFlag().
 API_RLOG_DECLARE(serv, "serv", "gRPC server operations")
 
@@ -82,6 +81,8 @@ const uint8_t* pluginAuthCallback() {
 
     // Invoke the API's function to randomize the key
     if (Octane::randomizePluginAuthenticationKey(randomizedKey.data(), randomizedKey.size())) {
+        // Static so the returned .data() pointer outlives the call — SDK retains it.
+        // Only called once during apiMode_Shared_start(); not thread-safe if called concurrently.
         static std::vector<uint8_t> hash;
         if (hmacSha256(randomizedKey, PLUGIN_TYPE, hash)) {
             return hash.data();
@@ -123,7 +124,7 @@ bool SdkEngine::Init(const char* pluginType, bool runDispatchLoop) {
         // Continue anyway — demo mode may still work
     }
 
-    // Enable the 'grpc' log flag and wire up the Octane log sink
+    // Enable the 'serv' log flag and wire up the Octane log sink
     Octane::ApiLogManager::setFlag("serv", 1);
     ServerLog::instance().setExternalSink(octaneLogSink);
 
