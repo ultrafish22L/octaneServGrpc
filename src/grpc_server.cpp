@@ -1123,7 +1123,7 @@ private:
 // the expected build.
 // ═══════════════════════════════════════════════════════════════════════════
 // Build number — increment on every code change to verify running code matches build.
-static constexpr int SERV_BUILD = 5;
+static constexpr int SERV_BUILD = 6;
 
 class LiveLinkServiceImpl final : public livelinkapi::LiveLinkService::Service {
     static constexpr const char* SVC = "LiveLinkService";
