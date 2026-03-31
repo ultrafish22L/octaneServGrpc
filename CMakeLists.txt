@@ -270,11 +270,16 @@ configure_serv_target(octaneGrpcSE)
 copy_octane_runtime(octaneGrpcSE)
 
 # =============================================================================
-# Post-build: copy both exes + runtime to dev/bin/ for easy access
+# Post-build: copy both exes + runtime to dev/bin/{version}/
 # =============================================================================
-set(DEV_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../bin")
+# Read version from octaneWebR/package.json to keep bin layout consistent
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../octaneWebR/package.json" _PKG_JSON)
+string(JSON _PKG_VERSION GET "${_PKG_JSON}" "version")
+message(STATUS "  Package version: ${_PKG_VERSION} (from octaneWebR/package.json)")
 
-# Helper: copy an exe and all Octane runtime files to dev/bin/
+set(DEV_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../bin/${_PKG_VERSION}")
+
+# Helper: copy an exe and all Octane runtime files to dev/bin/{version}/
 function(copy_to_dev_bin TARGET_NAME)
     # Copy the exe itself
     add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
@@ -282,7 +287,7 @@ function(copy_to_dev_bin TARGET_NAME)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_FILE:${TARGET_NAME}>"
             "${DEV_BIN_DIR}/$<TARGET_FILE_NAME:${TARGET_NAME}>"
-        COMMENT "Copying ${TARGET_NAME} → dev/bin/"
+        COMMENT "Copying ${TARGET_NAME} → dev/bin/${_PKG_VERSION}/"
     )
     # Copy runtime dependencies
     if(WIN32)
@@ -292,7 +297,7 @@ function(copy_to_dev_bin TARGET_NAME)
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                         "${OCTANE_BIN_DIR}/${RUNTIME_FILE}"
                         "${DEV_BIN_DIR}/${RUNTIME_FILE}"
-                    COMMENT "Copying ${RUNTIME_FILE} → dev/bin/"
+                    COMMENT "Copying ${RUNTIME_FILE} → dev/bin/${_PKG_VERSION}/"
                 )
             endif()
         endforeach()

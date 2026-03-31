@@ -2034,8 +2034,20 @@ public:
             }
 
             uint32_t pinIdx = request->pinidx();
-            // Don't bounds-check pinIdx — SDK handles it. Mesh nodes may have
-            // pins before pinCount() reflects them (e.g. material slot on empty mesh).
+            // Hard guard: reject connections to pins that don't exist yet.
+            // If you just expanded A_PIN_COUNT with evaluate=false, you must
+            // call ApiChangeManager.update() before connecting to the new pin.
+            uint32_t pc = node->pinCount();
+            if (pinIdx >= pc) {
+                std::ostringstream oss;
+                oss << SVC << "." << __func__ << ": pin index " << pinIdx
+                    << " out of range (pinCount is " << pc << ") on node "
+                    << request->objectptr().handle()
+                    << ". If you expanded A_PIN_COUNT with evaluate=false, "
+                       "call ApiChangeManager.update() before connecting to the new pin.";
+                ServerLog::instance().log("WRN", SVC, __func__, oss.str());
+                return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, oss.str());
+            }
             node->connectToIx(pinIdx, source, request->evaluate(), request->docyclecheck());
 
             // Post-connect verification: confirm connection took effect
