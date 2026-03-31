@@ -1694,6 +1694,7 @@ public:
             }
 
             response->set_success(true);
+            ServerLog::instance().res(SVC, __func__, response->ShortDebugString());
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -1919,6 +1920,7 @@ public:
             if (configurePins) {
                 registerPinChildrenRecursive(node);
             }
+            ServerLog::instance().res(SVC, __func__, response->ShortDebugString());
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -2059,6 +2061,7 @@ public:
                     ServerLog::instance().log("WRN", SVC, __func__, oss.str());
                 }
             }
+            ServerLog::instance().res(SVC, __func__, "ok");
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }

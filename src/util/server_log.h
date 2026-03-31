@@ -89,10 +89,13 @@ public:
     void log(const char* prefix, const std::string& service, const std::string& method,
              const std::string& detail = "") {
         bool isError = (prefix[0] == 'E'); // ERR
+        bool isReq = (prefix[0] == 'R' && prefix[1] == 'E' && prefix[2] == 'Q'); // REQ — verbose only
+
+        // REQ logs are verbose-only (suppressed at all other levels, both file and sink)
+        if (isReq && mLevel != LogLevel::Verbose) return;
 
         // Forward to Octane log window via external sink (independent of file log level).
-        // Policy: errors always, mutating/lifecycle always, debug-level reads always.
-        // High-freq firehose (grabRenderResult, getRenderStatistics, etc.) only at verbose.
+        // Policy: errors always, RES for mutating/lifecycle/debug reads, REQ only at verbose.
         {
             bool forwardToSink = isError
                 || sMutatingMethods.count(method)
@@ -110,7 +113,7 @@ public:
         // File logging — skip if disabled
         if (mLevel == LogLevel::Off) return;
 
-        // Level filtering — same logic as client
+        // Level filtering
         if (mLevel == LogLevel::Warn && !isError) return;
         if (mLevel == LogLevel::Info && !isError && !sMutatingMethods.count(method)) return;
         if (mLevel == LogLevel::Debug && !isError &&

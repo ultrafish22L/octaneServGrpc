@@ -112,7 +112,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
 
     // Parse command line for port and log level
     uint16_t port = DEFAULT_PORT;
-    OctaneServ::LogLevel logLevel = OctaneServ::LogLevel::Debug;
+    OctaneServ::LogLevel logLevel = OctaneServ::LogLevel::Off;
     std::string cmdline = lpCmdLine;
     if (!cmdline.empty()) {
         port = parsePort(cmdline);
@@ -411,7 +411,7 @@ int main(int argc, char* argv[]) {
 
     // Init file logging — parse --log-level arg or SERV_LOG_LEVEL env
     {
-        OctaneServ::LogLevel logLevel = OctaneServ::LogLevel::Debug;
+        OctaneServ::LogLevel logLevel = OctaneServ::LogLevel::Off;
         const char* envLevel = std::getenv("SERV_LOG_LEVEL");
         if (envLevel) logLevel = OctaneServ::ServerLog::parseLevel(envLevel);
         for (int i = 1; i < argc; ++i) {
