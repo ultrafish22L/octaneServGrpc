@@ -2034,21 +2034,19 @@ public:
             }
 
             uint32_t pinIdx = request->pinidx();
-            // Hard guard: reject connections to pins that don't exist yet.
-            // If you just expanded A_PIN_COUNT with evaluate=false, you must
-            // call ApiChangeManager.update() before connecting to the new pin.
+            // Hard guard: reject connections to pins that don't exist.
             uint32_t pc = node->pinCount();
             if (pinIdx >= pc) {
                 std::ostringstream oss;
                 oss << SVC << "." << __func__ << ": pin index " << pinIdx
                     << " out of range (pinCount is " << pc << ") on node "
                     << request->objectptr().handle()
-                    << ". If you expanded A_PIN_COUNT with evaluate=false, "
-                       "call ApiChangeManager.update() before connecting to the new pin.";
+                    << ". Expand A_PIN_COUNT first via setValueByAttrID.";
                 ServerLog::instance().log("WRN", SVC, __func__, oss.str());
                 return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, oss.str());
             }
             node->connectToIx(pinIdx, source, request->evaluate(), request->docyclecheck());
+            Octane::ApiChangeManager::update();
 
             // Post-connect verification: confirm connection took effect
             if (source && pinIdx < node->pinCount()) {
