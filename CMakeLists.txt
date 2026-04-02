@@ -15,6 +15,10 @@ cmake_policy(SET CMP0091 NEW)
 
 project(octaneServGrpc VERSION 1.0.0 LANGUAGES CXX)
 
+# Read app version from octaneWebR/package.json (used for tray tooltip + bin output)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../octaneWebR/package.json" _PKG_JSON)
+string(JSON _PKG_VERSION GET "${_PKG_JSON}" "version")
+
 # Use DLL CRT globally — required for gRPC's BoringSSL and abseil to link cleanly.
 # Octane SDK (octane.dll) is a DLL so DLL CRT is compatible.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "" FORCE)
@@ -247,7 +251,7 @@ if(WIN32)
         ${SERV_SOURCES}
         src/OctaneServGrpc.rc
     )
-    target_compile_definitions(octaneServGrpc PRIVATE SERV_WIN32_APP)
+    target_compile_definitions(octaneServGrpc PRIVATE SERV_WIN32_APP APP_VERSION="${_PKG_VERSION}")
     configure_serv_target(octaneServGrpc)
     copy_octane_runtime(octaneServGrpc)
 else()
@@ -266,6 +270,7 @@ if(WIN32)
 else()
     add_executable(octaneGrpcSE ${SERV_SOURCES})
 endif()
+target_compile_definitions(octaneGrpcSE PRIVATE APP_VERSION="${_PKG_VERSION}")
 configure_serv_target(octaneGrpcSE)
 copy_octane_runtime(octaneGrpcSE)
 

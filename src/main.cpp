@@ -288,10 +288,9 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
 
 //--------------------------------------------------------------------------------
 void UpdateTaskBarInfo(bool init) {
-    std::string tip = "OctaneServGrpc";
+    std::string tip = "OctaneServGrpc v" APP_VERSION;
 
     if (OctaneServ::SdkEngine::IsReady()) {
-        tip += " v." + std::to_string(OctaneServ::SdkEngine::GetVersion());
         if (OctaneServ::SdkEngine::IsActivated()) {
             tip += " (Activated)";
         } else {
