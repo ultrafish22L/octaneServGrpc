@@ -46,8 +46,18 @@ set(OCTANE_INCLUDE_DIR "${OCTANE_SDK_DIR}/include")
 set(OCTANE_LIB "${OCTANE_SDK_DIR}/lib/octane.lib")
 set(OCTANE_BIN_DIR "${OCTANE_SDK_DIR}/bin")
 
-# Build as Studio+ tier 2
-add_definitions(-DOCTANE_STUDIO_VERSION)
+# Build tier: ON = demo SDK build, OFF = Studio+ (tier 2) licensed build
+# Default OFF — matches the Studio+ SDK at the default OCTANE_SDK_DIR path.
+# Use build.bat --demo or -DWITH_DEMO=ON for demo builds.
+option(WITH_DEMO "Build against demo SDK (no license required)" OFF)
+
+if(WITH_DEMO)
+    add_definitions(-DOCTANE_DEMO_VERSION)
+    message(STATUS "  Build tier: DEMO")
+else()
+    add_definitions(-DOCTANE_STUDIO_VERSION)
+    message(STATUS "  Build tier: Studio+ (tier 2)")
+endif()
 # NOTE: Do NOT define OCTANE_STANDALONE — it hides apiMode_Shared_start/exit/activate
 # which we need for the plugin SDK lifecycle.
 
@@ -282,7 +292,13 @@ file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../octaneWebR/package.json" _PKG_JSON)
 string(JSON _PKG_VERSION GET "${_PKG_JSON}" "version")
 message(STATUS "  Package version: ${_PKG_VERSION} (from octaneWebR/package.json)")
 
-set(DEV_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../bin/${_PKG_VERSION}")
+# Append _DEMO suffix so demo builds don't overwrite licensed builds
+if(WITH_DEMO)
+    set(_BIN_SUFFIX "_DEMO")
+else()
+    set(_BIN_SUFFIX "")
+endif()
+set(DEV_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../bin/${_PKG_VERSION}${_BIN_SUFFIX}")
 
 # Helper: copy an exe and all Octane runtime files to dev/bin/{version}/
 function(copy_to_dev_bin TARGET_NAME)

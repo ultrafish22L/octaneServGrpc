@@ -293,7 +293,11 @@ public:
     grpc::Status isDemoVersion(grpc::ServerContext*, const octaneapi::ApiInfo::isDemoVersionRequest*,
         octaneapi::ApiInfo::isDemoVersionResponse* response) override {
         GRPC_SAFE_BEGIN(SVC)
+#ifdef OCTANE_DEMO_VERSION
+            response->set_result(true);
+#else
             response->set_result(Octane::ApiInfo::isDemoVersion());
+#endif
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
     }
@@ -883,6 +887,7 @@ private:
     // ── Save Image ────────────────────────────────────────────────────
     grpc::Status saveImage1(grpc::ServerContext*, const octaneapi::ApiRenderEngine::saveImage1Request* request,
         octaneapi::ApiRenderEngine::saveImage1Response* response) override {
+#ifndef OCTANE_DEMO_VERSION
         GRPC_SAFE_BEGIN(SVC)
             if (request->fullpath().empty()) {
                 return failInvalidArg(SVC, __func__, "fullPath is empty");
@@ -904,6 +909,9 @@ private:
             response->set_result(result);
             return grpc::Status::OK;
         GRPC_SAFE_END(SVC)
+#else
+        return grpc::Status(grpc::StatusCode::UNIMPLEMENTED, "saveImage not available in demo build");
+#endif
     }
 
     // ── Enabled AOVs ──────────────────────────────────────────────────

@@ -69,8 +69,12 @@ static bool hmacSha256(const std::vector<uint8_t>& key, const char* message, std
 namespace OctaneServ {
 
 const uint8_t* pluginAuthCallback() {
-    // Select key based on tier (we use T2 for Studio+)
+    // Select key based on build tier
+#ifdef OCTANE_DEMO_VERSION
+    const uint8_t* PLUGIN_AUTH_KEY = PLUGIN_AUTH_KEY_WINDOWS_T0;
+#else
     const uint8_t* PLUGIN_AUTH_KEY = PLUGIN_AUTH_KEY_WINDOWS_T2;
+#endif
 
     if (PLUGIN_AUTH_KEY == nullptr) {
         return nullptr;
@@ -99,13 +103,7 @@ bool SdkEngine::Init(const char* pluginType, bool runDispatchLoop) {
         return false;
     }
 
-    // Tier check — we're built for Studio+ (tier 2)
-    if (Octane::ApiInfo::tierIdx() != 2) {
-        std::cerr << "[OctaneServGrpc] ERROR: SDK tier mismatch. Expected tier 2 (Studio+)." << std::endl;
-        return false;
-    }
-
-    // Core init — start the engine
+    // Core init — start the engine (must happen before tier/activation checks)
     const char* error = nullptr;
     if (!Octane::apiMode_Shared_isStarted()) {
         if (!Octane::apiMode_Shared_start(pluginType, pluginAuthCallback, runDispatchLoop, &error)) {
@@ -114,7 +112,17 @@ bool SdkEngine::Init(const char* pluginType, bool runDispatchLoop) {
         }
     }
 
+    // Tier check — verify SDK matches build configuration (after engine start)
+#ifdef OCTANE_DEMO_VERSION
+    if (!Octane::ApiInfo::isDemoVersion()) {
+        std::cerr << "[OctaneServGrpc] ERROR: Built for demo but SDK is not demo version." << std::endl;
+        Octane::apiMode_Shared_exit(nullptr);
+        return false;
+    }
+#endif
+
     // Activate license
+#ifndef OCTANE_DEMO_VERSION
     if (!Octane::apiMode_isActivated()) {
         Octane::ActivationResult result = Octane::apiMode_activate(&error, false, nullptr, nullptr);
         (void)result;
@@ -123,6 +131,7 @@ bool SdkEngine::Init(const char* pluginType, bool runDispatchLoop) {
         std::cerr << "[OctaneServGrpc] WARNING: License not activated: " << (error ? error : "unknown") << std::endl;
         // Continue anyway — demo mode may still work
     }
+#endif
 
     // Enable the 'serv' log flag and wire up the Octane log sink
     Octane::ApiLogManager::setFlag("serv", 1);
@@ -171,9 +180,11 @@ void SdkEngine::OpenLogWindow() {
 }
 
 void SdkEngine::OpenPreferences() {
+#ifndef OCTANE_DEMO_VERSION
     if (Octane::apiMode_Shared_isStarted()) {
         Octane::ApiNetRenderManager::openOctanePreferences();
     }
+#endif
 }
 
 void SdkEngine::OpenDeviceSettings() {

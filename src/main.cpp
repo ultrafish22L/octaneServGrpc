@@ -124,7 +124,11 @@ int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCm
     OctaneServ::ServerLog::instance().init("octaneServGrpc", logLevel);
 
     // Initialize global strings
+#ifdef OCTANE_DEMO_VERSION
+    _tcscpy_s(szTitle, MAX_LOADSTRING, _T("OctaneServGrpc DEMO"));
+#else
     _tcscpy_s(szTitle, MAX_LOADSTRING, _T("OctaneServGrpc"));
+#endif
     _tcscpy_s(szWindowClass, MAX_LOADSTRING, _T("OCTANESERVGRPC"));
 
     // Register window class and create hidden window
@@ -291,11 +295,15 @@ void UpdateTaskBarInfo(bool init) {
     std::string tip = "OctaneServGrpc v" APP_VERSION;
 
     if (OctaneServ::SdkEngine::IsReady()) {
+#ifdef OCTANE_DEMO_VERSION
+        tip += " (DEMO)";
+#else
         if (OctaneServ::SdkEngine::IsActivated()) {
             tip += " (Activated)";
         } else {
             tip += " (Deactivated)";
         }
+#endif
     }
 
     if (gServer) {
