@@ -21,7 +21,8 @@ string(JSON _PKG_VERSION GET "${_PKG_JSON}" "version")
 
 # Use DLL CRT globally — required for gRPC's BoringSSL and abseil to link cleanly.
 # Octane SDK (octane.dll) is a DLL so DLL CRT is compatible.
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "" FORCE)
+# Use generator expression so Debug builds get MDd and Release builds get MD.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "" FORCE)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -96,12 +97,24 @@ FetchContent_Declare(
     GIT_SUBMODULES_RECURSE TRUE   # Pull abseil, protobuf, etc.
 )
 
+# Suppress noisy warnings from dependency builds (abseil, protobuf, upb, cares)
+# C4244: conversion loss, C4267: size_t narrowing, C5287: auto enum deprecation
+# Scoped: save current flags, add suppressions for deps, restore after add_subdirectory
+set(_SAVED_C_FLAGS "${CMAKE_C_FLAGS}")
+set(_SAVED_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /wd4244 /wd4267 /wd5287")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd5287")
+
 # EXCLUDE_FROM_ALL = don't build gRPC tests/examples
 FetchContent_GetProperties(grpc)
 if(NOT grpc_POPULATED)
     FetchContent_Populate(grpc)
     add_subdirectory(${grpc_SOURCE_DIR} ${grpc_BINARY_DIR} EXCLUDE_FROM_ALL)
 endif()
+
+# Restore flags — our own targets get clean warnings
+set(CMAKE_C_FLAGS "${_SAVED_C_FLAGS}")
+set(CMAKE_CXX_FLAGS "${_SAVED_CXX_FLAGS}")
 
 # After add_subdirectory, these targets are available:
 #   grpc++              - gRPC C++ library
@@ -205,7 +218,7 @@ function(configure_serv_target TARGET_NAME)
         target_compile_options(${TARGET_NAME} PRIVATE /EHa)
         target_link_libraries(${TARGET_NAME} PRIVATE bcrypt ws2_32 crypt32)
         set_property(TARGET ${TARGET_NAME} PROPERTY
-            MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
     endif()
 endfunction()
 
@@ -250,7 +263,7 @@ endfunction()
 # DLL CRT for serv_protos (shared by both targets)
 if(WIN32)
     set_property(TARGET serv_protos PROPERTY
-        MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
 # =============================================================================
